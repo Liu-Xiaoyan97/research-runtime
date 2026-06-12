@@ -2,11 +2,11 @@
   "workflow_status": "running",
   "phase": "A",
   "phase_step": "A1",
-  "iteration": 1,
+  "iteration": 2,
   "current_exp_name": null,
   "next_phase": "A",
   "blocked": false,
   "block_reason": null,
   "last_error": null,
-  "updated_at": "2026-06-12T10:56:14.055447+00:00"
+  "updated_at": "2026-06-12T10:58:28.010220+00:00"
 }

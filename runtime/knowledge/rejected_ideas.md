@@ -26,3 +26,15 @@ No rejected ideas yet.
 - Remote training status: not_started
 - Local validation status: passed
 - Modification summary: No code changes applied by scaffold Phase C.
+
+
+## exp_0002_exploration
+
+- Date: 2026-06-12T10:58:28.010220+00:00
+- Iteration: 2
+- Selected direction: Architecture-level modification placeholder
+- Verdict: rejected / not evaluated.
+- Rejection reason: no real validation result was produced.
+- Remote training status: not_started
+- Local validation status: passed
+- Modification summary: No code changes applied by scaffold Phase C.

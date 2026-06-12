@@ -4,6 +4,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [ -z "${ITERATION:-}" ] && [ -f runtime/state/state.json ]; then
+  ITERATION="$(
+    .venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+
+p = Path("runtime/state/state.json")
+if p.exists():
+    data = json.loads(p.read_text(encoding="utf-8"))
+    print(data.get("iteration", "unknown"))
+else:
+    print("unknown")
+PY
+  )"
+fi
+
 ITERATION="${ITERATION:-unknown}"
 
 # Never use `git add .` or `git add runtime`.

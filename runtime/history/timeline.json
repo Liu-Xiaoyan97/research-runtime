@@ -59,6 +59,66 @@
       "summary": "Experiment produced no real validation result; recorded as not evaluated.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:26.536347+00:00",
+      "iteration": 1,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:26.815175+00:00",
+      "iteration": 2,
+      "exp_name": "exp_0002_exploration",
+      "event_type": "phase_b_completed",
+      "phase": "B",
+      "summary": "Candidate directions were generated and a placeholder modification plan was created.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:27.111698+00:00",
+      "iteration": 2,
+      "exp_name": "exp_0002_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:27.520404+00:00",
+      "iteration": 2,
+      "exp_name": "exp_0002_exploration",
+      "event_type": "phase_d_skipped",
+      "phase": "D",
+      "summary": "Remote training launch skipped because remote_training.enabled is false.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:27.757255+00:00",
+      "iteration": 2,
+      "exp_name": "exp_0002_exploration",
+      "event_type": "phase_e_skipped",
+      "phase": "E",
+      "summary": "Monitoring skipped because remote training was not started.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:58:28.010220+00:00",
+      "iteration": 2,
+      "exp_name": "exp_0002_exploration",
+      "event_type": "phase_f_no_real_result",
+      "phase": "F",
+      "summary": "Experiment produced no real validation result; recorded as not evaluated.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

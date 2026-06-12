@@ -34,6 +34,7 @@ git add \
   uv.lock \
   .gitignore \
   .gitmodules \
+  project/.gitkeep \
   scripts \
   output/.gitkeep \
   workflow/oh-my-autoresearch \

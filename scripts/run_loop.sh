@@ -46,13 +46,13 @@ echo "== Next Action =="
 
 case "$PHASE" in
   A)
-    echo "Run Phase A: History Maintenance"
-    echo "Claude should read runtime history/state files and then advance to Phase B."
-    ;;
+  echo "Run Phase A: History Maintenance"
+  ./scripts/phases/phase_a_history.sh
+  ;;
   B)
-    echo "Run Phase B: Exploration Direction Generation"
-    echo "Claude should use AgentTeam to generate, deduplicate, debate, and select a modification plan."
-    ;;
+  echo "Run Phase B: Exploration Direction Generation"
+  ./scripts/phases/phase_b_exploration.sh
+  ;;
   C)
     echo "Run Phase C: Implementation and Local Validation"
     echo "Claude/coder should modify project/nn-architecture and run smoke tests."

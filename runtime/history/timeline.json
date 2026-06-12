@@ -1,3 +1,24 @@
 {
-  "events": []
+  "events": [
+    {
+      "time": "2026-06-12T09:26:35.634995+00:00",
+      "iteration": 0,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T09:30:17.187837+00:00",
+      "iteration": 1,
+      "exp_name": "exp_0001_exploration",
+      "event_type": "phase_b_completed",
+      "phase": "B",
+      "summary": "Candidate directions were generated and a placeholder modification plan was created.",
+      "best_val_loss": null,
+      "is_new_best": false
+    }
+  ]
 }

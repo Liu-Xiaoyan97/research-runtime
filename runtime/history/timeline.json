@@ -39,6 +39,16 @@
       "summary": "Remote training launch skipped because remote_training.enabled is false.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:50:35.047038+00:00",
+      "iteration": 1,
+      "exp_name": "exp_0001_exploration",
+      "event_type": "phase_e_skipped",
+      "phase": "E",
+      "summary": "Monitoring skipped because remote training was not started.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

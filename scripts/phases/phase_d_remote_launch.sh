@@ -87,7 +87,7 @@ print(f"remote_training.enabled: {enabled}")
 
 if not enabled:
     current["remote_training"] = {
-        "status": "skipped",
+        "status": "not_started",
         "server": None,
         "remote_dir": None,
         "train_command": None,
@@ -95,6 +95,9 @@ if not enabled:
         "log_path": None,
         "started_at": None,
         "ended_at": now,
+        "notes": [
+            "Remote training was skipped because remote_training.enabled is false."
+        ],
     }
 
     current.setdefault("local_validation", {}).setdefault("notes", []).append(

@@ -62,9 +62,9 @@ case "$PHASE" in
   ./scripts/phases/phase_d_remote_launch.sh
   ;;
   E)
-    echo "Run Phase E: Monitoring and Result Retrieval"
-    echo "Claude should use cron-based monitoring and update val_loss/result files."
-    ;;
+  echo "Run Phase E: Monitoring and Result Retrieval"
+  ./scripts/phases/phase_e_monitoring.sh
+  ;;
   F)
     echo "Run Phase F: Checkpoint Write"
     echo "Claude should update best.json, learned/rejected knowledge, timeline, then return to A."

@@ -66,9 +66,9 @@ case "$PHASE" in
   ./scripts/phases/phase_e_monitoring.sh
   ;;
   F)
-    echo "Run Phase F: Checkpoint Write"
-    echo "Claude should update best.json, learned/rejected knowledge, timeline, then return to A."
-    ;;
+  echo "Run Phase F: Checkpoint Write"
+  ./scripts/phases/phase_f_checkpoint.sh
+  ;;
   BLOCKED)
     echo "Workflow is BLOCKED. Inspect runtime/state/state.json."
     exit 2

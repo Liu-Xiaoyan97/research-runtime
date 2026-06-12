@@ -49,6 +49,16 @@
       "summary": "Monitoring skipped because remote training was not started.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:56:14.055447+00:00",
+      "iteration": 1,
+      "exp_name": "exp_0001_exploration",
+      "event_type": "phase_f_no_real_result",
+      "phase": "F",
+      "summary": "Experiment produced no real validation result; recorded as not evaluated.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

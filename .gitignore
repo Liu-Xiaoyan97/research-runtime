@@ -70,3 +70,12 @@ output/**
 !output/.gitkeep
 
 .venv/
+
+
+# Project submodule working tree should not leak generated artifacts into runtime repo.
+project/nn-architecture/**
+!project/
+!project/.gitkeep
+project/**/.venv/
+project/**/__pycache__/
+project/**/*.pyc

@@ -19,6 +19,16 @@
       "summary": "Candidate directions were generated and a placeholder modification plan was created.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T09:54:42.139867+00:00",
+      "iteration": 1,
+      "exp_name": "exp_0001_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

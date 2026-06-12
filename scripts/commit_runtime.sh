@@ -21,7 +21,6 @@ git add \
   scripts \
   output/.gitkeep \
   workflow/oh-my-autoresearch \
-  project/nn-architecture \
   runtime/CLAUDE.md \
   runtime/objective/objective.yaml \
   runtime/state/state.json \

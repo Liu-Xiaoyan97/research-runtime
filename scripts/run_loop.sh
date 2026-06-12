@@ -54,9 +54,9 @@ case "$PHASE" in
   ./scripts/phases/phase_b_exploration.sh
   ;;
   C)
-    echo "Run Phase C: Implementation and Local Validation"
-    echo "Claude/coder should modify project/nn-architecture and run smoke tests."
-    ;;
+  echo "Run Phase C: Implementation and Local Validation"
+  ./scripts/phases/phase_c_local_validation.sh
+  ;;
   D)
     echo "Run Phase D: Remote Training Launch"
     echo "Claude should upload code and start remote training only if remote_training is enabled."

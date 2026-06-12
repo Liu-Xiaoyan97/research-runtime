@@ -167,10 +167,10 @@ current.update({
     "modification_plan": json.dumps(modification_plan, indent=2, ensure_ascii=False),
     "code_change_summary": None,
     "local_validation": {
-        "status": "planned",
-        "commands": modification_plan["local_validation_commands"],
-        "passed": False,
-        "notes": []
+    "status": "not_started",
+    "commands": modification_plan["local_validation_commands"],
+    "passed": False,
+    "notes": []
     },
     "remote_training": {
         "status": "not_started",

@@ -58,9 +58,9 @@ case "$PHASE" in
   ./scripts/phases/phase_c_local_validation.sh
   ;;
   D)
-    echo "Run Phase D: Remote Training Launch"
-    echo "Claude should upload code and start remote training only if remote_training is enabled."
-    ;;
+  echo "Run Phase D: Remote Training Launch"
+  ./scripts/phases/phase_d_remote_launch.sh
+  ;;
   E)
     echo "Run Phase E: Monitoring and Result Retrieval"
     echo "Claude should use cron-based monitoring and update val_loss/result files."

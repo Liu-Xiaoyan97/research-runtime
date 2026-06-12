@@ -29,6 +29,16 @@
       "summary": "Local validation passed. Workflow advanced to Phase D.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T10:40:04.747984+00:00",
+      "iteration": 1,
+      "exp_name": "exp_0001_exploration",
+      "event_type": "phase_d_skipped",
+      "phase": "D",
+      "summary": "Remote training launch skipped because remote_training.enabled is false.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

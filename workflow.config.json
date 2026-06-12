@@ -32,11 +32,15 @@
     "experiments": "never_overwrite"
   },
   "remote_training": {
-    "enabled": false,
-    "server": null,
-    "remote_project_dir": null,
-    "train_command": null,
-    "log_path": null
+  "enabled": false,
+  "gateway_host": "mgt",
+  "gpu_host": "gpu01",
+  "shared_home": "/share/home/liuxiaoyan",
+  "remote_project_dir": "/share/home/liuxiaoyan/nn-architecture",
+  "remote_runs_dir": "/share/home/liuxiaoyan/autoresearch-runs",
+  "train_command_template": "cd /share/home/liuxiaoyan/nn-architecture && python train.py --exp-name {exp_name}",
+  "log_path_template": "/share/home/liuxiaoyan/autoresearch-runs/{exp_name}/train.log",
+  "launch_via_gateway": true
   },
   "safety": {
     "allow_git_push": false,

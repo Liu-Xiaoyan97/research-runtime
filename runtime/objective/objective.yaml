@@ -36,10 +36,34 @@ exploration_policy:
 
 remote_training:
   enabled: false
-  server: null
-  remote_project_dir: null
-  train_command_template: null
-  log_path_template: null
+
+  # SSH entrypoint. Local machine connects here first.
+  gateway_host: mgt
+
+  # GPU execution node, reachable from mgt.
+  gpu_host: gpu01
+
+  # Shared filesystem visible from both mgt and gpu01.
+  shared_home: /share/home/liuxiaoyan
+
+  # Remote project root for nn-architecture experiments.
+  remote_project_dir: /share/home/liuxiaoyan/nn-architecture
+
+  # Per-experiment run directory.
+  remote_runs_dir: /share/home/liuxiaoyan/autoresearch-runs
+
+  # Command template to execute on gpu01.
+  # {exp_name} will be replaced by current_iteration.exp_name.
+  train_command_template: |
+    cd /share/home/liuxiaoyan/nn-architecture &&
+    python train.py --exp-name {exp_name}
+
+  # Log path template on shared filesystem.
+  log_path_template: /share/home/liuxiaoyan/autoresearch-runs/{exp_name}/train.log
+
+  # Launch policy.
+  launch_via_gateway: true
+  forbid_sleep_ssh_polling: true
 
 notes:
   - Focus on architecture-level changes first.

@@ -100,18 +100,19 @@
       "2026-06-12T09:44:55.793777+00:00: Phase C started. Project validation will run locally.",
       "Project directory not found: project/nn-architecture",
       "2026-06-12T09:54:42.074054+00:00: Phase C started. Project validation will run locally.",
-      "2026-06-12T09:54:42.139867+00:00: python3 -m compileall . passed"
+      "2026-06-12T09:54:42.139867+00:00: python3 -m compileall . passed",
+      "2026-06-12T10:40:04.747984+00:00: Phase D skipped because remote_training.enabled is false."
     ]
   },
   "remote_training": {
-    "status": "not_started",
+    "status": "skipped",
     "server": null,
     "remote_dir": null,
     "train_command": null,
     "cron_id": null,
     "log_path": null,
     "started_at": null,
-    "ended_at": null
+    "ended_at": "2026-06-12T10:40:04.747984+00:00"
   },
   "result": {
     "status": "pending",
@@ -126,5 +127,5 @@
     "verdict": null,
     "summary": null
   },
-  "updated_at": "2026-06-12T09:54:42.139867+00:00"
+  "updated_at": "2026-06-12T10:40:04.747984+00:00"
 }

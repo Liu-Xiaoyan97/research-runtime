@@ -62,3 +62,15 @@ No rejected ideas yet.
 - Remote training status: not_started
 - Local validation status: passed
 - Modification summary: No code changes applied by scaffold Phase C.
+
+
+## exp_0005_exploration
+
+- Date: 2026-06-12T12:03:20.100840+00:00
+- Iteration: 5
+- Selected direction: Add residual projection around TinyModel placeholder
+- Verdict: rejected / not evaluated.
+- Rejection reason: no real validation result was produced.
+- Remote training status: not_started
+- Local validation status: passed
+- Modification summary: Applied demo residual-projection metadata change to project/nn-architecture/src/nn_architecture/model.py

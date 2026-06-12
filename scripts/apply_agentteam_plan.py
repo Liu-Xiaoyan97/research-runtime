@@ -116,8 +116,20 @@ def validate_deduplicated_directions(value: Any) -> list[dict[str, Any]]:
 def validate_selected_direction(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Selected Direction must be a JSON object")
-    if not value.get("title"):
+
+    title = value.get("title")
+    if not title:
         raise ValueError("Selected Direction missing title")
+
+    forbidden_titles = {
+        "selected direction",
+        "selected direction title",
+        "short direction name",
+    }
+
+    if str(title).strip().lower() in forbidden_titles:
+        raise ValueError(f"Selected Direction appears to be a schema placeholder: {title!r}")
+
     return value
 
 
@@ -128,8 +140,20 @@ def validate_modification_plan(value: Any) -> dict[str, Any]:
     if value.get("status") != "ready_for_implementation":
         raise ValueError("Modification Plan status must be ready_for_implementation")
 
-    if not value.get("selected_direction"):
+    selected_direction = value.get("selected_direction")
+    if not selected_direction:
         raise ValueError("Modification Plan missing selected_direction")
+
+    forbidden_selected = {
+        "selected direction",
+        "selected direction title",
+        "short direction name",
+    }
+
+    if str(selected_direction).strip().lower() in forbidden_selected:
+        raise ValueError(
+            f"Modification Plan selected_direction appears to be a schema placeholder: {selected_direction!r}"
+        )
 
     scope = value.get("implementation_scope")
     if not isinstance(scope, list) or not scope:

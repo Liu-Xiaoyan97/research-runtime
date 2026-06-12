@@ -259,6 +259,76 @@
       "summary": "Experiment produced no real validation result; recorded as not evaluated.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:57:22.361124+00:00",
+      "iteration": 4,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:57:23.051706+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "phase_b_agentteam_prompt_created",
+      "phase": "B",
+      "summary": "Phase B created an AgentTeam debate prompt and is waiting for a real modification plan.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T12:02:18.613322+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "agentteam_plan_applied",
+      "phase": "B",
+      "summary": "AgentTeam plan applied. Selected direction: Add residual projection around TinyModel placeholder",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T12:02:44.676306+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T12:03:19.777737+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "phase_d_skipped",
+      "phase": "D",
+      "summary": "Remote training launch skipped because remote_training.enabled is false.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T12:03:19.942757+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "phase_e_skipped",
+      "phase": "E",
+      "summary": "Monitoring skipped because remote training was not started.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T12:03:20.100840+00:00",
+      "iteration": 5,
+      "exp_name": "exp_0005_exploration",
+      "event_type": "phase_f_no_real_result",
+      "phase": "F",
+      "summary": "Experiment produced no real validation result; recorded as not evaluated.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

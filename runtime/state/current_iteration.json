@@ -1,6 +1,6 @@
 {
   "exp_name": null,
-  "iteration": 4,
+  "iteration": 5,
   "objective_summary": null,
   "selected_direction": null,
   "candidate_directions": [],
@@ -36,5 +36,5 @@
     "verdict": null,
     "summary": null
   },
-  "updated_at": "2026-06-12T11:52:10.890503+00:00"
+  "updated_at": "2026-06-12T12:03:20.100840+00:00"
 }

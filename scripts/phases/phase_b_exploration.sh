@@ -221,7 +221,7 @@ Claude/AgentTeam must fill the following sections.
 
 Expected item schema:
 
-```json
+```text
 {{
   "source": "role-name",
   "title": "short direction name",
@@ -250,7 +250,7 @@ null
 
 Expected schema:
 
-```json
+```text
 {{
   "title": "selected direction",
   "rationale": "why selected",
@@ -267,7 +267,7 @@ null
 
 Expected schema:
 
-```json
+```text
 {{
   "status": "ready_for_implementation",
   "selected_direction": "selected direction title",

@@ -1,0 +1,84 @@
+{
+  "exp_name": null,
+  "iteration": 0,
+  "objective_summary": null,
+  "selected_direction": null,
+  "candidate_directions": [],
+  "deduplicated_directions": [],
+  "modification_plan": null,
+  "code_change_summary": null,
+  "agentteam": {
+    "b1_candidate_review": {
+      "status": "not_started",
+      "agents": [
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "summary": null,
+      "candidate_count": 0,
+      "blocking_issues": []
+    },
+    "b2_orthogonality_review": {
+      "status": "not_started",
+      "agent": "orthogonal-direction-scout",
+      "summary": null,
+      "accepted_candidates": [],
+      "rejected_candidates": [],
+      "override_reason": null
+    },
+    "b3_plan_selection": {
+      "status": "not_started",
+      "agents": [
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "selected_candidate": null,
+      "summary": null,
+      "implementation_risks": [],
+      "diagnostic_requirements": []
+    },
+    "f2_evidence_review": {
+      "status": "not_started",
+      "agents": [
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "summary": null,
+      "verdict": null,
+      "missing_evidence": []
+    }
+  },
+  "local_validation": {
+    "status": "not_started",
+    "commands": [],
+    "passed": false,
+    "notes": []
+  },
+  "remote_training": {
+    "status": "not_started",
+    "server": null,
+    "remote_dir": null,
+    "train_command": null,
+    "cron_id": null,
+    "log_path": null,
+    "started_at": null,
+    "ended_at": null
+  },
+  "result": {
+    "status": "pending",
+    "best_val_loss": null,
+    "final_val_loss": null,
+    "best_epoch": null,
+    "is_new_best": false
+  },
+  "root_cause_analysis": {
+    "status": "not_started",
+    "agent_votes": [],
+    "verdict": null,
+    "summary": null
+  },
+  "updated_at": null
+}

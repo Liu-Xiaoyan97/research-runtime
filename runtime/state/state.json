@@ -1,0 +1,12 @@
+{
+  "workflow_status": "running",
+  "phase": "A",
+  "phase_step": "A1",
+  "iteration": 0,
+  "current_exp_name": null,
+  "next_phase": "A",
+  "blocked": false,
+  "block_reason": null,
+  "last_error": null,
+  "updated_at": null
+}

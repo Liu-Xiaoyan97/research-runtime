@@ -1,0 +1,46 @@
+{
+  "workflow": {
+    "name": "oh-my-autoresearch",
+    "path": "workflow/oh-my-autoresearch",
+    "manifest": "manifests/nn_architecture.yaml",
+    "type": "nn_architecture"
+  },
+  "project": {
+    "name": "nn-architecture",
+    "path": "project/nn-architecture"
+  },
+  "runtime": {
+    "path": "runtime",
+    "claude": "runtime/CLAUDE.md",
+    "objective": "runtime/objective/objective.yaml",
+    "state": "runtime/state/state.json",
+    "current_iteration": "runtime/state/current_iteration.json",
+    "val_loss": "runtime/state/val_loss.json",
+    "timeline": "runtime/history/timeline.json",
+    "learned_patterns": "runtime/knowledge/learned_patterns.md",
+    "rejected_ideas": "runtime/knowledge/rejected_ideas.md",
+    "best": "runtime/experiments/best.json",
+    "debates": "runtime/debates",
+    "experiments": "runtime/experiments"
+  },
+  "sync_policy": {
+    "objective": "copy_if_missing",
+    "runtime_state": "copy_if_missing",
+    "knowledge": "copy_if_missing",
+    "history": "copy_if_missing",
+    "debates": "never_overwrite",
+    "experiments": "never_overwrite"
+  },
+  "remote_training": {
+    "enabled": false,
+    "server": null,
+    "remote_project_dir": null,
+    "train_command": null,
+    "log_path": null
+  },
+  "safety": {
+    "allow_git_push": false,
+    "allow_remote_training": false,
+    "forbid_sleep_ssh_polling": true
+  }
+}

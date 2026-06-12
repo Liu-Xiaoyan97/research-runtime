@@ -1,0 +1,40 @@
+goal: |
+  Replace this template with the concrete research objective.
+
+primary_metric:
+  name: val_loss
+  mode: minimize
+
+success_criteria:
+  description: |
+    Define what counts as success for this research loop.
+  target_metric:
+    name: val_loss
+    operator: "<="
+    value: null
+
+stop_conditions:
+  max_iterations: 100
+  no_improvement_patience: 20
+  reach_target_metric: false
+  manual_stop: true
+
+constraints:
+  max_params: null
+  max_flops: null
+  max_vram_gb: null
+  max_training_hours_per_experiment: null
+
+exploration_policy:
+  prefer_architecture_changes: true
+  allow_training_hyperparameter_changes: true
+  allow_data_changes: false
+  allow_new_dependencies: false
+
+remote_training:
+  server: null
+  remote_project_dir: null
+  train_command_template: null
+  log_path_template: null
+
+notes: []

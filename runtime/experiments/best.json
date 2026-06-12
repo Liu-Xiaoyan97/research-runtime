@@ -1,0 +1,5 @@
+{
+  "metric": "val_loss",
+  "mode": "minimize",
+  "best": null
+}

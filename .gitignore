@@ -1,0 +1,29 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+.venv/
+venv/
+.env
+.env.*
+
+*.log
+*.tmp
+*.lock
+
+# Large model artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+
+# Runtime temp files only.
+runtime/**/*.tmp
+runtime/**/*.lock
+
+# Keep runtime state tracked.
+!runtime/
+!runtime/**
+
+.ven/

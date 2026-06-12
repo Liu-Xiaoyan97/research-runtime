@@ -209,6 +209,56 @@
       "summary": "Phase B created an AgentTeam debate prompt and is waiting for a real modification plan.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:50:36.143855+00:00",
+      "iteration": 4,
+      "exp_name": "exp_0004_exploration",
+      "event_type": "agentteam_plan_applied",
+      "phase": "B",
+      "summary": "AgentTeam plan applied. Selected direction: selected direction",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:50:48.235816+00:00",
+      "iteration": 4,
+      "exp_name": "exp_0004_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:52:10.554741+00:00",
+      "iteration": 4,
+      "exp_name": "exp_0004_exploration",
+      "event_type": "phase_d_skipped",
+      "phase": "D",
+      "summary": "Remote training launch skipped because remote_training.enabled is false.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:52:10.726718+00:00",
+      "iteration": 4,
+      "exp_name": "exp_0004_exploration",
+      "event_type": "phase_e_skipped",
+      "phase": "E",
+      "summary": "Monitoring skipped because remote training was not started.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:52:10.890503+00:00",
+      "iteration": 4,
+      "exp_name": "exp_0004_exploration",
+      "event_type": "phase_f_no_real_result",
+      "phase": "F",
+      "summary": "Experiment produced no real validation result; recorded as not evaluated.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

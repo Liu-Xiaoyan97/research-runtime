@@ -124,6 +124,9 @@ fi
 
 echo "Project directory found: $PROJECT_DIR"
 
+echo "Applying scaffold-safe demo model change if applicable..."
+"$PYTHON_BIN" "$ROOT_DIR/scripts/apply_demo_model_change.py" --root "$ROOT_DIR"
+
 # Run smoke test.
 # Prefer project-defined test script if present; otherwise use a safe compile check.
 VALIDATION_STATUS="passed"

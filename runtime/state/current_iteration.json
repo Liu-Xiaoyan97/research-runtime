@@ -1,7 +1,7 @@
 {
-  "exp_name": "exp_0004_exploration",
+  "exp_name": null,
   "iteration": 4,
-  "objective_summary": "Explore neural network architecture variants that reduce validation loss\ncompared with the current baseline while keeping implementation complexity\nand compute cost under control.\n",
+  "objective_summary": null,
   "selected_direction": null,
   "candidate_directions": [],
   "deduplicated_directions": [],
@@ -36,5 +36,5 @@
     "verdict": null,
     "summary": null
   },
-  "updated_at": "2026-06-12T11:47:49.260878+00:00"
+  "updated_at": "2026-06-12T11:52:10.890503+00:00"
 }

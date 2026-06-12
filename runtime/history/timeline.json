@@ -119,6 +119,46 @@
       "summary": "Experiment produced no real validation result; recorded as not evaluated.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:24:26.179161+00:00",
+      "iteration": 2,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:24:37.124758+00:00",
+      "iteration": 3,
+      "exp_name": "exp_0003_exploration",
+      "event_type": "phase_b_agentteam_prompt_created",
+      "phase": "B",
+      "summary": "Phase B created an AgentTeam debate prompt and is waiting for a real modification plan.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:45:09.856197+00:00",
+      "iteration": 3,
+      "exp_name": "exp_0003_exploration",
+      "event_type": "agentteam_plan_applied",
+      "phase": "B",
+      "summary": "AgentTeam plan applied. Selected direction: Add residual projection around TinyModel placeholder",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T11:45:40.222199+00:00",
+      "iteration": 3,
+      "exp_name": "exp_0003_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

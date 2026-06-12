@@ -79,3 +79,14 @@ project/nn-architecture/**
 project/**/.venv/
 project/**/__pycache__/
 project/**/*.pyc
+
+# Output is generated and should not be tracked except .gitkeep
+output/**
+!output/
+!output/.gitkeep
+
+# Local project workspace.
+# nn-architecture is developed separately and must not be committed into autoresearch-runtime.
+project/**
+!project/
+!project/.gitkeep

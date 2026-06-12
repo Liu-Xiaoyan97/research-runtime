@@ -38,3 +38,15 @@ No rejected ideas yet.
 - Remote training status: not_started
 - Local validation status: passed
 - Modification summary: No code changes applied by scaffold Phase C.
+
+
+## exp_0003_exploration
+
+- Date: 2026-06-12T11:46:52.894474+00:00
+- Iteration: 3
+- Selected direction: Add residual projection around TinyModel placeholder
+- Verdict: rejected / not evaluated.
+- Rejection reason: no real validation result was produced.
+- Remote training status: not_started
+- Local validation status: passed
+- Modification summary: No code changes applied by scaffold Phase C.

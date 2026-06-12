@@ -1,12 +1,12 @@
 {
   "workflow_status": "running",
-  "phase": "D",
-  "phase_step": "D1",
-  "iteration": 3,
-  "current_exp_name": "exp_0003_exploration",
-  "next_phase": "D",
+  "phase": "B",
+  "phase_step": "B2",
+  "iteration": 4,
+  "current_exp_name": "exp_0004_exploration",
+  "next_phase": "B",
   "blocked": false,
   "block_reason": null,
   "last_error": null,
-  "updated_at": "2026-06-12T11:45:40.222199+00:00"
+  "updated_at": "2026-06-12T11:47:49.260878+00:00"
 }

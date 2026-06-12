@@ -20,6 +20,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scripts.schema_contract import load_schema, validate_against_schema
+
 state_path = Path("runtime/state/state.json")
 current_path = Path("runtime/state/current_iteration.json")
 val_loss_path = Path("runtime/state/val_loss.json")
@@ -36,6 +38,12 @@ required = [
     best_path,
     learned_path,
     rejected_path,
+    Path("workflow/oh-my-autoresearch/schemas/best.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/current_iteration.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/experiment.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/state.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/timeline.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/val_loss.schema.json"),
 ]
 
 missing = [str(p) for p in required if not p.exists()]
@@ -47,6 +55,26 @@ current = json.loads(current_path.read_text(encoding="utf-8"))
 val_loss = json.loads(val_loss_path.read_text(encoding="utf-8"))
 timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
 best = json.loads(best_path.read_text(encoding="utf-8"))
+
+root = Path(".").resolve()
+best_schema = load_schema(root, "best.schema.json")
+current_schema = load_schema(root, "current_iteration.schema.json")
+experiment_schema = load_schema(root, "experiment.schema.json")
+state_schema = load_schema(root, "state.schema.json")
+timeline_schema = load_schema(root, "timeline.schema.json")
+val_loss_schema = load_schema(root, "val_loss.schema.json")
+
+
+def write_json_with_schema(path, data, schema, location):
+    validate_against_schema(data, schema, location)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+validate_against_schema(state, state_schema, str(state_path))
+validate_against_schema(current, current_schema, str(current_path))
+validate_against_schema(val_loss, val_loss_schema, str(val_loss_path))
+validate_against_schema(timeline, timeline_schema, str(timeline_path))
+validate_against_schema(best, best_schema, str(best_path))
 
 if state.get("phase") != "F":
     print(f"Phase F skipped. Current phase is {state.get('phase')}.")
@@ -63,7 +91,7 @@ if not exp_name:
         "block_reason": reason,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
     raise SystemExit(reason)
 
 experiment_path = Path(f"runtime/experiments/{exp_name}.json")
@@ -77,10 +105,11 @@ if not experiment_path.exists():
         "block_reason": reason,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
     raise SystemExit(reason)
 
 experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+validate_against_schema(experiment, experiment_schema, str(experiment_path))
 
 now = datetime.now(timezone.utc).isoformat()
 
@@ -115,7 +144,7 @@ if has_real_result:
         "best_val_loss": best_val_loss,
         "final_val_loss": final_val_loss,
         "best_epoch": best_epoch,
-        "status": "success",
+        "status": "succeeded",
         "updated_at": now,
     }
 
@@ -129,13 +158,13 @@ if has_real_result:
     ))
 
     val_loss["records"] = records
-    val_loss_path.write_text(json.dumps(val_loss, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_with_schema(val_loss_path, val_loss, val_loss_schema, str(val_loss_path))
 
     current_best = best.get("best")
     if current_best is None or best_val_loss < current_best.get("best_val_loss", float("inf")):
         is_new_best = True
         best["best"] = record
-        best_path.write_text(json.dumps(best, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_json_with_schema(best_path, best, best_schema, str(best_path))
 
     current.setdefault("result", {})
     current["result"].update({
@@ -199,7 +228,7 @@ else:
     checkpoint_summary = "Experiment produced no real validation result; recorded as not evaluated."
 
 current["updated_at"] = now
-current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+write_json_with_schema(current_path, current, current_schema, str(current_path))
 
 timeline.setdefault("events", []).append({
     "time": now,
@@ -211,7 +240,7 @@ timeline.setdefault("events", []).append({
     "best_val_loss": best_val_loss,
     "is_new_best": is_new_best,
 })
-timeline_path.write_text(json.dumps(timeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+write_json_with_schema(timeline_path, timeline, timeline_schema, str(timeline_path))
 
 # Reset current_iteration for the next loop.
 next_current = {
@@ -255,7 +284,7 @@ next_current = {
     "updated_at": now
 }
 
-current_path.write_text(json.dumps(next_current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+write_json_with_schema(current_path, next_current, current_schema, str(current_path))
 
 state.update({
     "workflow_status": "running",
@@ -268,7 +297,7 @@ state.update({
     "updated_at": now,
 })
 
-state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+write_json_with_schema(state_path, state, state_schema, str(state_path))
 
 print("Phase F completed. Advanced to Phase A/A1.")
 PY

@@ -20,6 +20,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scripts.schema_contract import load_schema, validate_against_schema
+
 state_path = Path("runtime/state/state.json")
 current_path = Path("runtime/state/current_iteration.json")
 timeline_path = Path("runtime/history/timeline.json")
@@ -30,6 +32,10 @@ required = [
     current_path,
     timeline_path,
     val_loss_path,
+    Path("workflow/oh-my-autoresearch/schemas/current_iteration.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/experiment.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/state.schema.json"),
+    Path("workflow/oh-my-autoresearch/schemas/timeline.schema.json"),
 ]
 
 missing = [str(p) for p in required if not p.exists()]
@@ -40,6 +46,22 @@ state = json.loads(state_path.read_text(encoding="utf-8"))
 current = json.loads(current_path.read_text(encoding="utf-8"))
 timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
 val_loss = json.loads(val_loss_path.read_text(encoding="utf-8"))
+
+root = Path(".").resolve()
+current_schema = load_schema(root, "current_iteration.schema.json")
+experiment_schema = load_schema(root, "experiment.schema.json")
+state_schema = load_schema(root, "state.schema.json")
+timeline_schema = load_schema(root, "timeline.schema.json")
+
+
+def write_json_with_schema(path, data, schema, location):
+    validate_against_schema(data, schema, location)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+validate_against_schema(state, state_schema, str(state_path))
+validate_against_schema(current, current_schema, str(current_path))
+validate_against_schema(timeline, timeline_schema, str(timeline_path))
 
 if state.get("phase") != "E":
     print(f"Phase E skipped. Current phase is {state.get('phase')}.")
@@ -56,7 +78,7 @@ if not exp_name:
         "block_reason": reason,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
     raise SystemExit(reason)
 
 remote_training = current.get("remote_training", {})
@@ -71,6 +93,8 @@ print(f"remote_training.status: {remote_status}")
 experiment_path = Path(f"runtime/experiments/{exp_name}.json")
 if experiment_path.exists():
     print(f"Experiment file already exists and will not be overwritten: {experiment_path}")
+    experiment_record = json.loads(experiment_path.read_text(encoding="utf-8"))
+    validate_against_schema(experiment_record, experiment_schema, str(experiment_path))
 else:
     experiment_record = {
         "exp_name": exp_name,
@@ -98,10 +122,7 @@ else:
         ]
     }
 
-    experiment_path.write_text(
-        json.dumps(experiment_record, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8"
-    )
+    write_json_with_schema(experiment_path, experiment_record, experiment_schema, str(experiment_path))
     print(f"Created experiment record: {experiment_path}")
 
 if remote_status == "not_started":
@@ -137,9 +158,9 @@ if remote_status == "not_started":
         "updated_at": now,
     })
 
-    current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    timeline_path.write_text(json.dumps(timeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_with_schema(current_path, current, current_schema, str(current_path))
+    write_json_with_schema(timeline_path, timeline, timeline_schema, str(timeline_path))
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
 
     print("Phase E skipped. Advanced to Phase F/F1.")
     raise SystemExit(0)
@@ -180,9 +201,9 @@ timeline.setdefault("events", []).append({
     "is_new_best": False
 })
 
-current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-timeline_path.write_text(json.dumps(timeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+write_json_with_schema(current_path, current, current_schema, str(current_path))
+write_json_with_schema(timeline_path, timeline, timeline_schema, str(timeline_path))
+write_json_with_schema(state_path, state, state_schema, str(state_path))
 
 print(reason)
 raise SystemExit(1)

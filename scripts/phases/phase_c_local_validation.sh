@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PROJECT_DIR="$ROOT_DIR/project/nn-architecture"
 PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 
 if [ ! -x "$PYTHON_BIN" ]; then
@@ -17,219 +16,340 @@ fi
 cd "$ROOT_DIR"
 
 "$PYTHON_BIN" - <<'PY'
+from __future__ import annotations
+
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-state_path = Path("runtime/state/state.json")
-current_path = Path("runtime/state/current_iteration.json")
-timeline_path = Path("runtime/history/timeline.json")
 
-state = json.loads(state_path.read_text(encoding="utf-8"))
-current = json.loads(current_path.read_text(encoding="utf-8"))
+ROOT = Path(".").resolve()
 
-if state.get("phase") != "C":
-    print(f"Phase C skipped. Current phase is {state.get('phase')}.")
-    raise SystemExit(0)
+STATE_PATH = ROOT / "runtime/state/state.json"
+CURRENT_PATH = ROOT / "runtime/state/current_iteration.json"
+TIMELINE_PATH = ROOT / "runtime/history/timeline.json"
 
-required = [
-    "runtime/state/state.json",
-    "runtime/state/current_iteration.json",
-    "runtime/history/timeline.json",
-]
 
-missing = [p for p in required if not Path(p).exists()]
-if missing:
-    state["workflow_status"] = "blocked"
-    state["phase"] = "BLOCKED"
-    state["phase_step"] = "BLOCKED"
-    state["blocked"] = True
-    state["block_reason"] = "Missing required Phase C files: " + ", ".join(missing)
-    state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    raise SystemExit(state["block_reason"])
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-exp_name = current.get("exp_name")
-if not exp_name:
-    state["workflow_status"] = "blocked"
-    state["phase"] = "BLOCKED"
-    state["phase_step"] = "BLOCKED"
-    state["blocked"] = True
-    state["block_reason"] = "Phase C requires current_iteration.exp_name"
-    state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    raise SystemExit(state["block_reason"])
 
-if not current.get("modification_plan"):
-    state["workflow_status"] = "blocked"
-    state["phase"] = "BLOCKED"
-    state["phase_step"] = "BLOCKED"
-    state["blocked"] = True
-    state["block_reason"] = "Phase C requires current_iteration.modification_plan"
-    state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    raise SystemExit(state["block_reason"])
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
-now = datetime.now(timezone.utc).isoformat()
 
-current["local_validation"]["status"] = "not_started"
-current["local_validation"]["passed"] = False
-current["local_validation"].setdefault("notes", []).append(
-    f"{now}: Phase C started. Project validation will run locally."
-)
-current["updated_at"] = now
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
-current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-print("== Phase C: Implementation and Local Validation ==")
-print(f"exp_name: {exp_name}")
-print("Prepared current_iteration for local validation.")
-PY
+def load_required_files() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    missing = [
+        str(path.relative_to(ROOT))
+        for path in [STATE_PATH, CURRENT_PATH, TIMELINE_PATH]
+        if not path.exists()
+    ]
 
-if [ ! -d "$PROJECT_DIR" ]; then
-  "$PYTHON_BIN" - <<'PY'
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+    if missing:
+        state = load_json(STATE_PATH) if STATE_PATH.exists() else {}
+        block_state(
+            state=state,
+            current=None,
+            timeline=None,
+            reason="Missing required Phase C files: " + ", ".join(missing),
+            event_type="phase_c_failed",
+        )
+        raise SystemExit(1)
 
-state_path = Path("runtime/state/state.json")
-current_path = Path("runtime/state/current_iteration.json")
+    return load_json(STATE_PATH), load_json(CURRENT_PATH), load_json(TIMELINE_PATH)
 
-state = json.loads(state_path.read_text(encoding="utf-8"))
-current = json.loads(current_path.read_text(encoding="utf-8"))
 
-reason = "Project directory not found: project/nn-architecture"
+def parse_modification_plan(current: dict[str, Any]) -> dict[str, Any]:
+    raw = current.get("modification_plan")
 
-state.update({
-    "workflow_status": "blocked",
-    "phase": "BLOCKED",
-    "phase_step": "BLOCKED",
-    "blocked": True,
-    "block_reason": reason,
-    "updated_at": datetime.now(timezone.utc).isoformat()
-})
+    if raw is None:
+        raise ValueError("Phase C requires current_iteration.modification_plan")
 
-current["local_validation"]["status"] = "failed"
-current["local_validation"]["passed"] = False
-current["local_validation"].setdefault("notes", []).append(reason)
-current["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if isinstance(raw, dict):
+        return raw
 
-state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"current_iteration.modification_plan is not valid JSON: {exc}") from exc
 
-print(reason)
-PY
-  exit 1
-fi
+        if not isinstance(data, dict):
+            raise ValueError("current_iteration.modification_plan must decode to an object")
 
-echo "Project directory found: $PROJECT_DIR"
+        return data
 
-echo "Applying scaffold-safe demo model change if applicable..."
-"$PYTHON_BIN" "$ROOT_DIR/scripts/apply_demo_model_change.py" --root "$ROOT_DIR"
+    raise ValueError("current_iteration.modification_plan must be an object or JSON string")
 
-# Run smoke test.
-# Prefer project-defined test script if present; otherwise use a safe compile check.
-VALIDATION_STATUS="passed"
-VALIDATION_NOTE=""
 
-cd "$PROJECT_DIR"
+def get_project_dir(current: dict[str, Any], plan: dict[str, Any]) -> Path:
+    entrypoint = plan.get("training_entrypoint")
+    if isinstance(entrypoint, dict):
+        project_dir = entrypoint.get("project_dir")
+        if isinstance(project_dir, str) and project_dir.strip():
+            return ROOT / project_dir
 
-if [ -f "pyproject.toml" ] || [ -d "src" ]; then
-  echo "Running Python compile smoke test..."
-  if python3 -m compileall .; then
-    VALIDATION_STATUS="passed"
-    VALIDATION_NOTE="python3 -m compileall . passed"
-  else
-    VALIDATION_STATUS="failed"
-    VALIDATION_NOTE="python3 -m compileall . failed"
-  fi
-else
-  echo "No Python project indicators found. Running directory existence smoke test only."
-  VALIDATION_STATUS="passed"
-  VALIDATION_NOTE="Project directory exists; no compile smoke test executed."
-fi
+    scope = plan.get("implementation_scope")
+    if isinstance(scope, list):
+        for item in scope:
+            if isinstance(item, str) and item.startswith("project/"):
+                return ROOT / item
 
-cd "$ROOT_DIR"
+    return ROOT / "project/nn-architecture"
 
-"$PYTHON_BIN" - "$VALIDATION_STATUS" "$VALIDATION_NOTE" <<'PY'
-import json
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
 
-validation_status = sys.argv[1]
-validation_note = sys.argv[2]
+def get_commands(current: dict[str, Any]) -> list[str]:
+    local_validation = current.get("local_validation")
+    if not isinstance(local_validation, dict):
+        raise ValueError("Phase C requires current_iteration.local_validation object")
 
-state_path = Path("runtime/state/state.json")
-current_path = Path("runtime/state/current_iteration.json")
-timeline_path = Path("runtime/history/timeline.json")
+    commands = local_validation.get("commands")
+    if not isinstance(commands, list) or not commands:
+        raise ValueError("Phase C requires current_iteration.local_validation.commands to be a non-empty list")
 
-state = json.loads(state_path.read_text(encoding="utf-8"))
-current = json.loads(current_path.read_text(encoding="utf-8"))
-timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+    normalized: list[str] = []
+    for idx, command in enumerate(commands):
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError(f"current_iteration.local_validation.commands[{idx}] must be a non-empty string")
+        normalized.append(command.strip())
 
-now = datetime.now(timezone.utc).isoformat()
-passed = validation_status == "passed"
+    return normalized
 
-current["local_validation"]["status"] = validation_status
-current["local_validation"]["passed"] = passed
-current["local_validation"].setdefault("commands", [])
-if "python3 -m compileall ." not in current["local_validation"]["commands"]:
-    current["local_validation"]["commands"].append("python3 -m compileall .")
-current["local_validation"].setdefault("notes", []).append(f"{now}: {validation_note}")
-current["code_change_summary"] = current.get("code_change_summary") or "No code changes applied by scaffold Phase C."
-current["updated_at"] = now
 
-if passed:
-    state.update({
-        "workflow_status": "running",
-        "phase": "D",
-        "phase_step": "D1",
-        "next_phase": "D",
-        "blocked": False,
-        "block_reason": None,
-        "updated_at": now
-    })
+def append_timeline(
+    timeline: dict[str, Any],
+    state: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    event_type: str,
+    summary: str,
+) -> None:
+    timeline.setdefault("events", []).append(
+        {
+            "time": now_iso(),
+            "iteration": state.get("iteration", current.get("iteration", 0)),
+            "exp_name": current.get("exp_name"),
+            "event_type": event_type,
+            "phase": "C",
+            "summary": summary,
+            "best_val_loss": None,
+            "is_new_best": False,
+        }
+    )
 
-    timeline.setdefault("events", []).append({
-        "time": now,
-        "iteration": state.get("iteration", current.get("iteration", 0)),
-        "exp_name": current.get("exp_name"),
-        "event_type": "phase_c_completed",
-        "phase": "C",
-        "summary": "Local validation passed. Workflow advanced to Phase D.",
-        "best_val_loss": None,
-        "is_new_best": False
-    })
 
-    print("Phase C completed. Advanced to Phase D/D1.")
-else:
-    state.update({
-        "workflow_status": "blocked",
-        "phase": "BLOCKED",
-        "phase_step": "BLOCKED",
-        "blocked": True,
-        "block_reason": validation_note,
-        "updated_at": now
-    })
+def block_state(
+    *,
+    state: dict[str, Any],
+    current: dict[str, Any] | None,
+    timeline: dict[str, Any] | None,
+    reason: str,
+    event_type: str,
+) -> None:
+    timestamp = now_iso()
 
-    timeline.setdefault("events", []).append({
-        "time": now,
-        "iteration": state.get("iteration", current.get("iteration", 0)),
-        "exp_name": current.get("exp_name"),
-        "event_type": "phase_c_failed",
-        "phase": "C",
-        "summary": validation_note,
-        "best_val_loss": None,
-        "is_new_best": False
-    })
+    state.update(
+        {
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": timestamp,
+        }
+    )
+
+    if current is not None:
+        current.setdefault("local_validation", {})
+        current["local_validation"]["status"] = "failed"
+        current["local_validation"]["passed"] = False
+        current["local_validation"].setdefault("notes", []).append(f"{timestamp}: {reason}")
+        current["updated_at"] = timestamp
+
+    if timeline is not None and current is not None:
+        append_timeline(
+            timeline,
+            state,
+            current,
+            event_type=event_type,
+            summary=reason,
+        )
+
+    if STATE_PATH.exists():
+        write_json(STATE_PATH, state)
+    if current is not None:
+        write_json(CURRENT_PATH, current)
+    if timeline is not None:
+        write_json(TIMELINE_PATH, timeline)
+
+    print(reason)
+
+
+def mark_phase_c_started(current: dict[str, Any]) -> None:
+    timestamp = now_iso()
+    current.setdefault("local_validation", {})
+    current["local_validation"]["status"] = "not_started"
+    current["local_validation"]["passed"] = False
+    current["local_validation"].setdefault("notes", []).append(
+        f"{timestamp}: Phase C started. Running current_iteration.local_validation.commands locally."
+    )
+    current["updated_at"] = timestamp
+
+
+def run_commands(commands: list[str], project_dir: Path) -> tuple[bool, list[str]]:
+    notes: list[str] = []
+
+    for command in commands:
+        rel_project_dir = project_dir.relative_to(ROOT) if project_dir.is_relative_to(ROOT) else project_dir
+        print(f"+ cd {rel_project_dir} && {command}", flush=True)
+
+        completed = subprocess.run(
+            command,
+            cwd=project_dir,
+            shell=True,
+            text=True,
+        )
+
+        if completed.returncode != 0:
+            note = f"Command failed with exit code {completed.returncode}: {command}"
+            notes.append(note)
+            return False, notes
+
+        notes.append(f"Command passed: {command}")
+
+    return True, notes
+
+
+def main() -> int:
+    state, current, timeline = load_required_files()
+
+    if state.get("phase") != "C":
+        print(f"Phase C skipped. Current phase is {state.get('phase')}.")
+        return 0
+
+    exp_name = current.get("exp_name")
+    if not exp_name:
+        block_state(
+            state=state,
+            current=current,
+            timeline=timeline,
+            reason="Phase C requires current_iteration.exp_name",
+            event_type="phase_c_failed",
+        )
+        return 1
+
+    try:
+        plan = parse_modification_plan(current)
+        commands = get_commands(current)
+        project_dir = get_project_dir(current, plan)
+    except ValueError as exc:
+        block_state(
+            state=state,
+            current=current,
+            timeline=timeline,
+            reason=str(exc),
+            event_type="phase_c_failed",
+        )
+        return 1
+
+    if not project_dir.is_dir():
+        block_state(
+            state=state,
+            current=current,
+            timeline=timeline,
+            reason=f"Project directory not found: {project_dir.relative_to(ROOT) if project_dir.is_relative_to(ROOT) else project_dir}",
+            event_type="phase_c_failed",
+        )
+        return 1
+
+    print("== Phase C: Implementation and Local Validation ==")
+    print(f"exp_name: {exp_name}")
+    print(f"project_dir: {project_dir.relative_to(ROOT) if project_dir.is_relative_to(ROOT) else project_dir}")
+    print("Using current_iteration.local_validation.commands")
+
+    mark_phase_c_started(current)
+    write_json(CURRENT_PATH, current)
+
+    passed, command_notes = run_commands(commands, project_dir)
+
+    timestamp = now_iso()
+    current["local_validation"]["status"] = "passed" if passed else "failed"
+    current["local_validation"]["passed"] = passed
+    current["local_validation"].setdefault("notes", []).extend(
+        f"{timestamp}: {note}" for note in command_notes
+    )
+
+    if not current.get("code_change_summary"):
+        current["code_change_summary"] = "Phase C executed current_iteration.local_validation.commands."
+
+    current["updated_at"] = timestamp
+
+    if passed:
+        state.update(
+            {
+                "workflow_status": "running",
+                "phase": "D",
+                "phase_step": "D1",
+                "next_phase": "D",
+                "blocked": False,
+                "block_reason": None,
+                "updated_at": timestamp,
+            }
+        )
+
+        append_timeline(
+            timeline,
+            state,
+            current,
+            event_type="phase_c_completed",
+            summary="Local validation commands passed. Workflow advanced to Phase D.",
+        )
+
+        write_json(STATE_PATH, state)
+        write_json(CURRENT_PATH, current)
+        write_json(TIMELINE_PATH, timeline)
+
+        print("Phase C completed. Advanced to Phase D/D1.")
+        return 0
+
+    reason = command_notes[-1] if command_notes else "Phase C local validation command failed"
+
+    state.update(
+        {
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": timestamp,
+        }
+    )
+
+    append_timeline(
+        timeline,
+        state,
+        current,
+        event_type="phase_c_failed",
+        summary=reason,
+    )
+
+    write_json(STATE_PATH, state)
+    write_json(CURRENT_PATH, current)
+    write_json(TIMELINE_PATH, timeline)
 
     print("Phase C failed. Workflow moved to BLOCKED.")
+    return 1
 
-state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-timeline_path.write_text(json.dumps(timeline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-if not passed:
-    raise SystemExit(1)
+if __name__ == "__main__":
+    raise SystemExit(main())
 PY

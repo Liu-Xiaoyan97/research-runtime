@@ -329,6 +329,106 @@
       "summary": "Experiment produced no real validation result; recorded as not evaluated.",
       "best_val_loss": null,
       "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:19:03.858972+00:00",
+      "iteration": 5,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:19:26.656066+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "phase_b_agentteam_prompt_created",
+      "phase": "B",
+      "summary": "Phase B created an AgentTeam debate prompt and is waiting for a real modification plan.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:44:02.282800+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "agentteam_plan_applied",
+      "phase": "B",
+      "summary": "AgentTeam plan applied. Selected direction: Add residual projection around TinyModel placeholder",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:47:14.622319+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "agentteam_plan_applied",
+      "phase": "B",
+      "summary": "AgentTeam plan applied. Selected direction: Add residual projection around TinyModel placeholder",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:48:32.309180+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "phase_c_completed",
+      "phase": "C",
+      "summary": "Local validation passed. Workflow advanced to Phase D.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T14:49:10.356988+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "phase_d_skipped",
+      "phase": "D",
+      "summary": "Remote training launch skipped because remote_training.enabled is false.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T15:17:24.077423+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "phase_e_skipped",
+      "phase": "E",
+      "summary": "Monitoring skipped because remote training was not started.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T15:17:25.879122+00:00",
+      "iteration": 6,
+      "exp_name": "exp_0006_exploration",
+      "event_type": "phase_f_no_real_result",
+      "phase": "F",
+      "summary": "Experiment produced no real validation result; recorded as not evaluated.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T15:17:28.566213+00:00",
+      "iteration": 6,
+      "exp_name": null,
+      "event_type": "phase_a_completed",
+      "phase": "A",
+      "summary": "History/state files were read and workflow context was restored.",
+      "best_val_loss": null,
+      "is_new_best": false
+    },
+    {
+      "time": "2026-06-12T15:17:30.065771+00:00",
+      "iteration": 7,
+      "exp_name": "exp_0007_exploration",
+      "event_type": "phase_b_agentteam_prompt_created",
+      "phase": "B",
+      "summary": "Phase B created an AgentTeam debate prompt and is waiting for a real modification plan.",
+      "best_val_loss": null,
+      "is_new_best": false
     }
   ]
 }

@@ -2,33 +2,83 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 
-echo "AutoResearch loop entrypoint"
-echo
-echo "Claude Code should be started from this repository root."
-echo
-echo "Required runtime files:"
-echo "- runtime/objective/objective.yaml"
-echo "- runtime/state/state.json"
-echo "- runtime/state/current_iteration.json"
-echo "- runtime/state/val_loss.json"
-echo "- runtime/history/timeline.json"
-echo "- runtime/knowledge/learned_patterns.md"
-echo "- runtime/knowledge/rejected_ideas.md"
-echo "- runtime/experiments/best.json"
-echo
-echo "Current phase:"
-if [ -f runtime/state/state.json ]; then
-  python - <<'PY'
-import json
-from pathlib import Path
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3 || true)"
+fi
 
-p = Path("runtime/state/state.json")
-data = json.loads(p.read_text())
-print(data.get("phase"), data.get("phase_step"))
-PY
-else
-  echo "runtime/state/state.json not found. Run ./scripts/bootstrap.sh first."
+if [ -z "${PYTHON_BIN:-}" ]; then
+  echo "Python not found. Expected .venv/bin/python or python3."
   exit 1
 fi
+
+cd "$ROOT_DIR"
+
+echo "== AutoResearch Runtime Loop =="
+
+./scripts/validate_runtime.sh
+./scripts/show_phase.sh
+
+echo
+echo "== Checking stop conditions =="
+if ./scripts/check_stop_conditions.sh; then
+  true
+else
+  code=$?
+  if [ "$code" -eq 10 ]; then
+    echo "Stop condition reached. Workflow moved to DONE."
+    exit 0
+  fi
+  exit "$code"
+fi
+
+PHASE="$("$PYTHON_BIN" - <<'PY'
+import json
+from pathlib import Path
+data = json.loads(Path("runtime/state/state.json").read_text(encoding="utf-8"))
+print(data.get("phase"))
+PY
+)"
+
+echo
+echo "== Next Action =="
+
+case "$PHASE" in
+  A)
+    echo "Run Phase A: History Maintenance"
+    echo "Claude should read runtime history/state files and then advance to Phase B."
+    ;;
+  B)
+    echo "Run Phase B: Exploration Direction Generation"
+    echo "Claude should use AgentTeam to generate, deduplicate, debate, and select a modification plan."
+    ;;
+  C)
+    echo "Run Phase C: Implementation and Local Validation"
+    echo "Claude/coder should modify project/nn-architecture and run smoke tests."
+    ;;
+  D)
+    echo "Run Phase D: Remote Training Launch"
+    echo "Claude should upload code and start remote training only if remote_training is enabled."
+    ;;
+  E)
+    echo "Run Phase E: Monitoring and Result Retrieval"
+    echo "Claude should use cron-based monitoring and update val_loss/result files."
+    ;;
+  F)
+    echo "Run Phase F: Checkpoint Write"
+    echo "Claude should update best.json, learned/rejected knowledge, timeline, then return to A."
+    ;;
+  BLOCKED)
+    echo "Workflow is BLOCKED. Inspect runtime/state/state.json."
+    exit 2
+    ;;
+  DONE)
+    echo "Workflow is DONE."
+    exit 0
+    ;;
+  *)
+    echo "Unknown phase: $PHASE"
+    exit 1
+    ;;
+esac

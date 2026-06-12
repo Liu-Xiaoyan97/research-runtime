@@ -1,5 +1,7 @@
 goal: |
-  Replace this template with the concrete research objective.
+  Explore neural network architecture variants that reduce validation loss
+  compared with the current baseline while keeping implementation complexity
+  and compute cost under control.
 
 primary_metric:
   name: val_loss
@@ -7,15 +9,16 @@ primary_metric:
 
 success_criteria:
   description: |
-    Define what counts as success for this research loop.
+    Find an architecture modification that improves validation loss over the
+    current best recorded experiment and remains stable during training.
   target_metric:
     name: val_loss
     operator: "<="
     value: null
 
 stop_conditions:
-  max_iterations: 100
-  no_improvement_patience: 20
+  max_iterations: 300
+  no_improvement_patience: 30
   reach_target_metric: false
   manual_stop: true
 
@@ -32,9 +35,13 @@ exploration_policy:
   allow_new_dependencies: false
 
 remote_training:
+  enabled: false
   server: null
   remote_project_dir: null
   train_command_template: null
   log_path_template: null
 
-notes: []
+notes:
+  - Focus on architecture-level changes first.
+  - Avoid repeating ideas listed in runtime/knowledge/rejected_ideas.md.
+  - Prefer changes with clear ablation value and measurable validation-loss impact.

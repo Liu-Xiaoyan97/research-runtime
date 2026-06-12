@@ -34,6 +34,7 @@ required = [
     "runtime/knowledge/rejected_ideas.md",
     "runtime/history/timeline.json",
     "runtime/experiments/best.json",
+    "workflow/oh-my-autoresearch/schemas/phase_b_agentteam_output.schema.json",
 ]
 
 missing = [p for p in required if not Path(p).exists()]
@@ -122,6 +123,12 @@ if phase_step == "B1":
     exploration_policy_yaml = yaml.safe_dump(objective.get("exploration_policy", {}), sort_keys=False)
     best_record_json = json.dumps(best_record, indent=2, ensure_ascii=False)
     recent_records_json = json.dumps(recent_records, indent=2, ensure_ascii=False)
+    phase_b_schema_path = Path("workflow/oh-my-autoresearch/schemas/phase_b_agentteam_output.schema.json")
+    phase_b_schema_json = json.dumps(
+        json.loads(phase_b_schema_path.read_text(encoding="utf-8")),
+        indent=2,
+        ensure_ascii=False,
+    )
 
     debate_text = f"""# AgentTeam Debate: {exp_name}
 
@@ -211,25 +218,24 @@ Do not select a direction that substantially repeats rejected ideas unless there
 
 # Required Output Format
 
-Claude/AgentTeam must fill the following sections.
+Claude/AgentTeam must fill the following sections. Each JSON block must match
+the same-named property in:
+
+```text
+workflow/oh-my-autoresearch/schemas/phase_b_agentteam_output.schema.json
+```
+
+The full machine-readable schema is embedded here to keep the debate prompt in
+sync with the workflow-owned contract:
+
+```json
+{phase_b_schema_json}
+```
 
 ## Candidate Directions
 
 ```json
 []
-```
-
-Expected item schema:
-
-```text
-{{
-  "source": "role-name",
-  "title": "short direction name",
-  "rationale": "why it may improve val_loss",
-  "implementation_hint": "where/how to implement",
-  "historical_overlap_risk": "low|medium|high",
-  "expected_risk": "low|medium|high"
-}}
 ```
 
 ## Deduplicated Directions
@@ -248,38 +254,10 @@ Write the debate summary here.
 null
 ```
 
-Expected schema:
-
-```text
-{{
-  "title": "selected direction",
-  "rationale": "why selected",
-  "expected_val_loss_effect": "expected effect",
-  "risk": "low|medium|high"
-}}
-```
-
 ## Modification Plan
 
 ```json
 null
-```
-
-Expected schema:
-
-```text
-{{
-  "status": "ready_for_implementation",
-  "selected_direction": "selected direction title",
-  "implementation_scope": [
-    "project/nn-architecture"
-  ],
-  "files_to_modify": [],
-  "local_validation_commands": [
-    "python3 -m compileall ."
-  ],
-  "notes": []
-}}
 ```
 
 ---

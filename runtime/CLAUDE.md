@@ -2,9 +2,63 @@
 
 You are operating inside a runtime repository generated from `oh-my-autoresearch`.
 
+This is a loop-executed autonomous research project. Your default action is to
+advance the loop by running:
+
+```bash
+./scripts/run_loop.sh
+```
+
+After any phase finishes, immediately inspect `runtime/state/state.json` and
+continue with `./scripts/run_loop.sh` until the workflow reaches `BLOCKED` or
+`DONE`. Do not stop after a single phase just because the phase completed.
+Human intervention is required only when the workflow state is `BLOCKED`, when
+the state is `DONE`, or when a command fails in a way the workflow cannot
+repair.
+
 You MUST treat `runtime/` as the source of truth.
 
 Do not rely on chat history as the primary workflow state.
+
+## Environment
+
+This repository uses `uv` for Python environment management.
+
+- Prefer `uv run ...` for project commands when a `pyproject.toml` is present.
+- Do not use `pip install` directly unless the user explicitly asks.
+- Do not create ad hoc virtual environments; use the checked-in uv project
+  configuration.
+- The target research project is in `project/nn-architecture` and has its own
+  `pyproject.toml` / `uv.lock`.
+
+## Schema And Script Ownership
+
+Do not hand-edit runtime JSON into an invented shape. Runtime JSON must match
+the workflow schemas in:
+
+```text
+workflow/oh-my-autoresearch/schemas/
+runtime/schemas/
+```
+
+Use the repository scripts to create and advance runtime state:
+
+- `./scripts/phases/phase_b_exploration.sh`
+- `./scripts/apply_agentteam_plan.py`
+- `./scripts/phases/phase_c_local_validation.sh`
+- `./scripts/phases/phase_d_remote_launch.sh`
+- `./scripts/phases/phase_e_monitoring.sh`
+- `./scripts/phases/phase_f_checkpoint.sh`
+- `./scripts/validate_runtime.sh`
+- `./scripts/validate_schema.sh`
+
+If you write or update `runtime/state/*.json`, `runtime/history/timeline.json`,
+or `runtime/experiments/*.json`, run validation before stopping:
+
+```bash
+./scripts/validate_runtime.sh
+./scripts/validate_schema.sh
+```
 
 ## Required Runtime Reads
 
@@ -57,7 +111,8 @@ If state.phase is not A, jump to the recorded phase.
 
 ### Phase B
 
-Use AgentTeam to generate and review candidate research directions from:
+Use the project agents installed in `.claude/agents/` to generate and review
+candidate research directions from:
 
 * objective.yaml
 * learned_patterns.md
@@ -66,11 +121,11 @@ Use AgentTeam to generate and review candidate research directions from:
 * val_loss.json
 * best.json
 
-Phase B has three AgentTeam steps:
+Phase B has three project-agent steps:
 
-* B1: `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer` generate and stress-test candidates.
-* B2: `orthogonal-direction-scout` reviews candidates for historical overlap and orthogonality.
-* B3: `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer` debate the B2 survivors and select one implementation plan.
+* B1: `team-leader`, `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer` generate and stress-test candidates.
+* B2: `team-leader` and `orthogonal-direction-scout` review candidates for historical overlap and orthogonality.
+* B3: `team-leader`, `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer` debate the B2 survivors and select one implementation plan.
 
 Deduplicate candidates against historical attempts before writing the final plan.
 
@@ -95,9 +150,11 @@ If tests fail, set:
 }
 
 ### Phase D
-Upload modified code to the remote training server and start training.
+Launch training. If `workflow.config.json` disables remote training, run the
+local training entrypoint from `runtime/training/entrypoint.yaml`; otherwise
+upload modified code to the remote training server and start training.
 
-- Record remote training status in `runtime/state/current_iteration.json`.
+- Record training status in `runtime/state/current_iteration.json`.
 
 ### Phase E
 
@@ -114,7 +171,7 @@ Do not use long-running sleep + ssh polling loops.
 Compare current experiment results against `runtime/experiments/best.json`.
 
 - If improved, update `runtime/experiments/best.json`.
-- Run F2 AgentTeam root cause analysis with `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer`.
+- Run F1 AgentTeam root cause analysis with `team-leader`, `math-theorist`, `numerical-debugger`, and `flow-arch-reviewer`.
 - If the method is judged effective, append the method and analysis to `runtime/knowledge/learned_patterns.md`.
 - If the method is judged ineffective or harmful, append the method and analysis to `runtime/knowledge/rejected_ideas.md`.
 - If the evidence is insufficient, mark the verdict `inconclusive` and record the missing evidence without forcing a learned/rejected update.

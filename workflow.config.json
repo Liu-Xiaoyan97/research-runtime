@@ -32,6 +32,7 @@
     "experiments": "never_overwrite"
   },
   "remote_training": {
+  "enable": false,
   "enabled": false,
   "gateway_host": "mgt",
   "gpu_host": "gpu01",

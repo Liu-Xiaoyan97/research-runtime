@@ -70,6 +70,74 @@ def write_json_with_schema(path, data, schema, location):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def ensure_agentteam_contract(data):
+    agentteam = data.setdefault("agentteam", {})
+    if "f1_evidence_review" not in agentteam and "f2_evidence_review" in agentteam:
+        agentteam["f1_evidence_review"] = agentteam.pop("f2_evidence_review")
+
+    agentteam.setdefault("b1_candidate_review", {
+        "status": "not_started",
+        "summary": None,
+        "candidate_count": 0,
+        "blocking_issues": [],
+    })
+    agentteam["b1_candidate_review"]["agents"] = [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer",
+    ]
+
+    agentteam.setdefault("b2_orthogonality_review", {
+        "status": "not_started",
+        "agent": "orthogonal-direction-scout",
+        "summary": None,
+        "accepted_candidates": [],
+        "rejected_candidates": [],
+        "override_reason": None,
+    })
+    agentteam["b2_orthogonality_review"]["agent"] = "orthogonal-direction-scout"
+    agentteam["b2_orthogonality_review"]["agents"] = [
+        "team-leader",
+        "orthogonal-direction-scout",
+    ]
+
+    agentteam.setdefault("b3_plan_selection", {
+        "status": "not_started",
+        "selected_candidate": None,
+        "summary": None,
+        "implementation_risks": [],
+        "diagnostic_requirements": [],
+    })
+    agentteam["b3_plan_selection"]["agents"] = [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer",
+    ]
+
+    agentteam.setdefault("f1_evidence_review", {
+        "status": "not_started",
+        "summary": None,
+        "verdict": None,
+        "missing_evidence": [],
+    })
+    agentteam["f1_evidence_review"]["agents"] = [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer",
+    ]
+    data.setdefault("root_cause_analysis", {
+        "status": "not_started",
+        "agent_votes": [],
+        "verdict": None,
+        "summary": None,
+    })
+
+
+ensure_agentteam_contract(current)
+
 validate_against_schema(state, state_schema, str(state_path))
 validate_against_schema(current, current_schema, str(current_path))
 validate_against_schema(val_loss, val_loss_schema, str(val_loss_path))
@@ -132,10 +200,126 @@ has_real_result = best_val_loss is not None
 
 is_new_best = False
 
+f1_review = current["agentteam"]["f1_evidence_review"]
+root_cause = current["root_cause_analysis"]
+if state.get("phase_step", "F1") == "F1" and (
+    f1_review.get("status") != "complete" or root_cause.get("verdict") is None
+):
+    review_path = Path(f"runtime/debates/{exp_name}_f1_review.md")
+    if not review_path.exists():
+        current_schema_json = json.dumps(current_schema, indent=2, ensure_ascii=False)
+        experiment_json = json.dumps(experiment, indent=2, ensure_ascii=False)
+        current_json = json.dumps(current, indent=2, ensure_ascii=False)
+        review_text = f"""# AgentTeam F1 Evidence Review: {exp_name}
+
+## Status
+
+WAITING_FOR_AGENTTEAM_F1
+
+Claude must use the project agents in `.claude/agents/` and complete the F1
+evidence review before Phase F writes checkpoints or learned/rejected knowledge.
+
+## Required Project Agents
+
+1. `team-leader`
+2. `math-theorist`
+3. `numerical-debugger`
+4. `flow-arch-reviewer`
+
+## Experiment Record
+
+```json
+{experiment_json}
+```
+
+## Current Iteration
+
+```json
+{current_json}
+```
+
+## Required Review
+
+- `team-leader` coordinates the review and records the final reconciliation.
+- `math-theorist` decides whether the result supports or contradicts the original hypothesis.
+- `numerical-debugger` checks whether metrics are trustworthy or contaminated by implementation, data, solver, or logging issues.
+- `flow-arch-reviewer` decides whether the lesson is actionable and what the next research move should be.
+
+## Required Runtime Updates
+
+Update `runtime/state/current_iteration.json` so that:
+
+```json
+{{
+  "agentteam.f1_evidence_review.status": "complete",
+  "agentteam.f1_evidence_review.agents": [
+    "team-leader",
+    "math-theorist",
+    "numerical-debugger",
+    "flow-arch-reviewer"
+  ],
+  "agentteam.f1_evidence_review.summary": "...",
+  "agentteam.f1_evidence_review.verdict": "learned | rejected | inconclusive",
+  "agentteam.f1_evidence_review.missing_evidence": [],
+  "root_cause_analysis.status": "complete",
+  "root_cause_analysis.agent_votes": [],
+  "root_cause_analysis.verdict": "learned | rejected | inconclusive",
+  "root_cause_analysis.summary": "..."
+}}
+```
+
+The full schema is embedded here:
+
+```json
+{current_schema_json}
+```
+
+After the review is complete, rerun:
+
+```bash
+./scripts/run_loop.sh
+```
+"""
+        review_path.write_text(review_text, encoding="utf-8")
+        timeline.setdefault("events", []).append({
+            "time": now,
+            "iteration": state.get("iteration", current.get("iteration", 0)),
+            "exp_name": exp_name,
+            "event_type": "phase_f1_agentteam_prompt_created",
+            "phase": "F",
+            "summary": "Phase F/F1 created an AgentTeam evidence-review prompt and is waiting for structured review.",
+            "best_val_loss": best_val_loss,
+            "is_new_best": False,
+        })
+        write_json_with_schema(timeline_path, timeline, timeline_schema, str(timeline_path))
+
+    f1_review["status"] = "in_progress"
+    root_cause["status"] = "in_progress"
+    current["updated_at"] = now
+    write_json_with_schema(current_path, current, current_schema, str(current_path))
+    state.update({
+        "workflow_status": "running",
+        "phase": "F",
+        "phase_step": "F1",
+        "next_phase": "F",
+        "blocked": False,
+        "block_reason": None,
+        "updated_at": now,
+    })
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
+
+    print("== Phase F/F1: Waiting for AgentTeam Evidence Review ==")
+    print(f"exp_name: {exp_name}")
+    print(f"review_path: {review_path}")
+    print("Fill runtime/state/current_iteration.json with the F1 review, then rerun ./scripts/run_loop.sh.")
+    raise SystemExit(0)
+
 print("== Phase F: Checkpoint Write ==")
 print(f"exp_name: {exp_name}")
 print(f"has_real_result: {has_real_result}")
 print(f"best_val_loss: {best_val_loss}")
+
+review_verdict = root_cause.get("verdict") or f1_review.get("verdict")
 
 if has_real_result:
     record = {
@@ -175,7 +359,8 @@ if has_real_result:
         "is_new_best": is_new_best,
     })
 
-    learned_entry = f"""
+    if review_verdict == "learned":
+        learned_entry = f"""
 
 ## {exp_name}
 
@@ -186,16 +371,41 @@ if has_real_result:
 - Final val_loss: {final_val_loss}
 - Best epoch: {best_epoch}
 - New best: {is_new_best}
-- Verdict: accepted as empirically useful.
-- Evidence: real validation result was recorded.
+- Verdict: learned.
+- Evidence: {root_cause.get("summary")}
 - Modification summary: {current.get("code_change_summary")}
 """
 
-    with learned_path.open("a", encoding="utf-8") as f:
-        f.write(learned_entry)
+        with learned_path.open("a", encoding="utf-8") as f:
+            f.write(learned_entry)
 
-    checkpoint_event_type = "phase_f_completed"
-    checkpoint_summary = "Experiment had real validation result and checkpoint was written."
+        checkpoint_event_type = "phase_f_completed"
+        checkpoint_summary = "F1 AgentTeam judged the experiment learned; checkpoint was written."
+    elif review_verdict == "rejected":
+        rejected_entry = f"""
+
+## {exp_name}
+
+- Date: {now}
+- Iteration: {current.get("iteration", state.get("iteration"))}
+- Selected direction: {current.get("selected_direction")}
+- Best val_loss: {best_val_loss}
+- Final val_loss: {final_val_loss}
+- Best epoch: {best_epoch}
+- New best: {is_new_best}
+- Verdict: rejected.
+- Rejection reason: {root_cause.get("summary")}
+- Modification summary: {current.get("code_change_summary")}
+"""
+
+        with rejected_path.open("a", encoding="utf-8") as f:
+            f.write(rejected_entry)
+
+        checkpoint_event_type = "phase_f_rejected"
+        checkpoint_summary = "F1 AgentTeam judged the experiment rejected; checkpoint was written."
+    else:
+        checkpoint_event_type = "phase_f_inconclusive"
+        checkpoint_summary = "F1 AgentTeam judged the experiment inconclusive; checkpoint was written without learned/rejected update."
 
 else:
     current.setdefault("result", {})
@@ -207,25 +417,49 @@ else:
         "is_new_best": False,
     })
 
-    rejected_entry = f"""
+    if review_verdict == "learned":
+        learned_entry = f"""
 
 ## {exp_name}
 
 - Date: {now}
 - Iteration: {current.get("iteration", state.get("iteration"))}
 - Selected direction: {current.get("selected_direction")}
-- Verdict: rejected / not evaluated.
-- Rejection reason: no real validation result was produced.
+- Verdict: learned.
+- Evidence: {root_cause.get("summary")}
 - Remote training status: {current.get("remote_training", {}).get("status")}
 - Local validation status: {current.get("local_validation", {}).get("status")}
 - Modification summary: {current.get("code_change_summary")}
 """
 
-    with rejected_path.open("a", encoding="utf-8") as f:
-        f.write(rejected_entry)
+        with learned_path.open("a", encoding="utf-8") as f:
+            f.write(learned_entry)
 
-    checkpoint_event_type = "phase_f_no_real_result"
-    checkpoint_summary = "Experiment produced no real validation result; recorded as not evaluated."
+        checkpoint_event_type = "phase_f_completed"
+        checkpoint_summary = "F1 AgentTeam judged the experiment learned despite missing primary metric."
+    elif review_verdict == "rejected":
+        rejected_entry = f"""
+
+## {exp_name}
+
+- Date: {now}
+- Iteration: {current.get("iteration", state.get("iteration"))}
+- Selected direction: {current.get("selected_direction")}
+- Verdict: rejected.
+- Rejection reason: {root_cause.get("summary")}
+- Remote training status: {current.get("remote_training", {}).get("status")}
+- Local validation status: {current.get("local_validation", {}).get("status")}
+- Modification summary: {current.get("code_change_summary")}
+"""
+
+        with rejected_path.open("a", encoding="utf-8") as f:
+            f.write(rejected_entry)
+
+        checkpoint_event_type = "phase_f_no_real_result"
+        checkpoint_summary = "F1 AgentTeam rejected the experiment after no real validation result."
+    else:
+        checkpoint_event_type = "phase_f_inconclusive"
+        checkpoint_summary = "F1 AgentTeam judged the experiment inconclusive; no learned/rejected update was written."
 
 current["updated_at"] = now
 write_json_with_schema(current_path, current, current_schema, str(current_path))
@@ -280,6 +514,57 @@ next_current = {
         "agent_votes": [],
         "verdict": None,
         "summary": None
+    },
+    "agentteam": {
+        "b1_candidate_review": {
+            "status": "not_started",
+            "agents": [
+                "team-leader",
+                "math-theorist",
+                "numerical-debugger",
+                "flow-arch-reviewer",
+            ],
+            "summary": None,
+            "candidate_count": 0,
+            "blocking_issues": [],
+        },
+        "b2_orthogonality_review": {
+            "status": "not_started",
+            "agent": "orthogonal-direction-scout",
+            "agents": [
+                "team-leader",
+                "orthogonal-direction-scout",
+            ],
+            "summary": None,
+            "accepted_candidates": [],
+            "rejected_candidates": [],
+            "override_reason": None,
+        },
+        "b3_plan_selection": {
+            "status": "not_started",
+            "agents": [
+                "team-leader",
+                "math-theorist",
+                "numerical-debugger",
+                "flow-arch-reviewer",
+            ],
+            "selected_candidate": None,
+            "summary": None,
+            "implementation_risks": [],
+            "diagnostic_requirements": [],
+        },
+        "f1_evidence_review": {
+            "status": "not_started",
+            "agents": [
+                "team-leader",
+                "math-theorist",
+                "numerical-debugger",
+                "flow-arch-reviewer",
+            ],
+            "summary": None,
+            "verdict": None,
+            "missing_evidence": [],
+        },
     },
     "updated_at": now
 }

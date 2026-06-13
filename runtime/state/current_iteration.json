@@ -1,12 +1,63 @@
 {
-  "exp_name": "exp_0007_exploration",
-  "iteration": 7,
+  "exp_name": "exp_0001_exploration",
+  "iteration": 1,
   "objective_summary": "Explore neural network architecture variants that reduce validation loss\ncompared with the current baseline while keeping implementation complexity\nand compute cost under control.\n",
   "selected_direction": null,
   "candidate_directions": [],
   "deduplicated_directions": [],
   "modification_plan": null,
   "code_change_summary": null,
+  "agentteam": {
+    "b1_candidate_review": {
+      "status": "not_started",
+      "agents": [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "summary": null,
+      "candidate_count": 0,
+      "blocking_issues": []
+    },
+    "b2_orthogonality_review": {
+      "status": "not_started",
+      "agent": "orthogonal-direction-scout",
+      "agents": [
+        "team-leader",
+        "orthogonal-direction-scout"
+      ],
+      "summary": null,
+      "accepted_candidates": [],
+      "rejected_candidates": [],
+      "override_reason": null
+    },
+    "b3_plan_selection": {
+      "status": "not_started",
+      "agents": [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "selected_candidate": null,
+      "summary": null,
+      "implementation_risks": [],
+      "diagnostic_requirements": []
+    },
+    "f1_evidence_review": {
+      "status": "not_started",
+      "agents": [
+        "team-leader",
+        "math-theorist",
+        "numerical-debugger",
+        "flow-arch-reviewer"
+      ],
+      "summary": null,
+      "verdict": null,
+      "missing_evidence": []
+    }
+  },
   "local_validation": {
     "status": "not_started",
     "commands": [],
@@ -36,5 +87,5 @@
     "verdict": null,
     "summary": null
   },
-  "updated_at": "2026-06-12T15:17:30.065771+00:00"
+  "updated_at": "2026-06-13T00:44:36.036038+00:00"
 }

@@ -118,61 +118,6 @@ print("PASS: Phase B valid AgentTeam output accepted")
 PY
 echo
 
-echo "== 3b. Validate latest Phase B debate output against schema =="
-"$PYTHON_BIN" - <<'PY'
-import json
-import re
-from pathlib import Path
-
-from scripts.schema_contract import load_schema, validate_against_schema
-
-root = Path(".").resolve()
-schema = load_schema(root, "phase_b_agentteam_output.schema.json")
-
-current = json.loads((root / "runtime/state/current_iteration.json").read_text(encoding="utf-8"))
-exp_name = current.get("exp_name")
-
-if not exp_name:
-    print("WARN: current_iteration.json has no exp_name; skipping latest debate validation")
-    raise SystemExit(0)
-
-debate_path = root / "runtime/debates" / f"{exp_name}.md"
-if not debate_path.is_file():
-    print(f"WARN: missing debate file for current exp: {debate_path}; skipping")
-    raise SystemExit(0)
-
-text = debate_path.read_text(encoding="utf-8")
-
-def section(name: str) -> str:
-    pattern = rf"^## {re.escape(name)}\n([\s\S]*?)(?=^## |\Z)"
-    match = re.search(pattern, text, flags=re.MULTILINE)
-    if not match:
-        raise ValueError(f"missing section: {name}")
-    return match.group(1)
-
-def first_json_block(section_text: str):
-    match = re.search(r"```json[^\n]*\n([\s\S]*?)\n```", section_text)
-    if not match:
-        raise ValueError("missing json block")
-    return json.loads(match.group(1))
-
-candidate_directions = first_json_block(section("Candidate Directions"))
-deduplicated_directions = first_json_block(section("Deduplicated Directions"))
-selected_direction = first_json_block(section("Selected Direction"))
-modification_plan = first_json_block(section("Modification Plan"))
-
-output = {
-    "candidate_directions": candidate_directions,
-    "deduplicated_directions": deduplicated_directions,
-    "selected_direction": selected_direction,
-    "modification_plan": modification_plan,
-}
-
-validate_against_schema(output, schema, f"runtime/debates/{debate_path.name}")
-print(f"PASS: latest Phase B debate output conforms to phase_b_agentteam_output.schema.json: {debate_path.name}")
-PY
-echo
-
 echo "== 3b. Validate latest completed Phase B debate output against schema =="
 "$PYTHON_BIN" - <<'PY'
 import json
@@ -358,6 +303,7 @@ phase_b_refs=(
 )
 
 phase_ef_refs=(
+  "scripts/phases/phase_d_remote_launch.sh"
   "scripts/phases/phase_e_monitoring.sh"
   "scripts/phases/phase_f_checkpoint.sh"
 )
@@ -390,6 +336,14 @@ for file in "${phase_ef_refs[@]}"; do
     exit 1
   fi
 done
+
+if grep -Eq "workflow\\.config\\.json|workflow_config_path" scripts/phases/phase_d_remote_launch.sh \
+  && grep -Eq "run_local_training|execution_mode.*local" scripts/phases/phase_d_remote_launch.sh; then
+  echo "PASS: scripts/phases/phase_d_remote_launch.sh runs local training when remote training is disabled"
+else
+  echo "ERROR: scripts/phases/phase_d_remote_launch.sh does not appear to bind workflow.config.json remote_training=false to local training" >&2
+  exit 1
+fi
 
 echo
 

@@ -47,6 +47,40 @@ def load_training_entrypoint(root: Path) -> dict[str, Any]:
 def render_training_command(template: str, exp_name: str) -> str:
     return template.format(exp_name=exp_name)
 
+
+def ensure_agentteam_contract(current: dict[str, Any]) -> dict[str, Any]:
+    agentteam = current.setdefault("agentteam", {})
+    if "f1_evidence_review" not in agentteam and "f2_evidence_review" in agentteam:
+        agentteam["f1_evidence_review"] = agentteam.pop("f2_evidence_review")
+
+    agentteam.setdefault("b1_candidate_review", {})
+    agentteam["b1_candidate_review"].update({
+        "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+    })
+
+    agentteam.setdefault("b2_orthogonality_review", {})
+    agentteam["b2_orthogonality_review"].update({
+        "agent": "orthogonal-direction-scout",
+        "agents": ["team-leader", "orthogonal-direction-scout"],
+    })
+
+    agentteam.setdefault("b3_plan_selection", {})
+    agentteam["b3_plan_selection"].update({
+        "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+    })
+
+    agentteam.setdefault("f1_evidence_review", {})
+    agentteam["f1_evidence_review"].update({
+        "status": agentteam["f1_evidence_review"].get("status", "not_started"),
+        "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+        "summary": agentteam["f1_evidence_review"].get("summary"),
+        "verdict": agentteam["f1_evidence_review"].get("verdict"),
+        "missing_evidence": agentteam["f1_evidence_review"].get("missing_evidence", []),
+    })
+
+    return agentteam
+
+
 def extract_section(text: str, heading: str) -> str:
     pattern = rf"^## {re.escape(heading)}\s*$([\s\S]*?)(?=^## |\Z)"
     match = re.search(pattern, text, flags=re.MULTILINE)
@@ -290,6 +324,31 @@ def main() -> int:
     selected_title = selected_direction["title"]
     commands = modification_plan["local_validation_commands"]
     now = datetime.now(timezone.utc).isoformat()
+    agentteam = ensure_agentteam_contract(current)
+    agentteam["b1_candidate_review"].update({
+        "status": "complete",
+        "summary": "B1 project agents generated and stress-tested candidate directions.",
+        "candidate_count": len(candidate_directions),
+        "blocking_issues": [],
+    })
+    agentteam["b2_orthogonality_review"].update({
+        "status": "complete",
+        "summary": "B2 project agents reviewed candidate orthogonality against runtime history.",
+        "accepted_candidates": [
+            item.get("title", item.get("id", "unknown"))
+            for item in deduplicated_directions
+            if isinstance(item, dict)
+        ],
+        "rejected_candidates": [],
+        "override_reason": None,
+    })
+    agentteam["b3_plan_selection"].update({
+        "status": "complete",
+        "selected_candidate": selected_title,
+        "summary": "B3 project agents selected one concrete Phase C implementation plan.",
+        "implementation_risks": modification_plan.get("implementation_risks", []),
+        "diagnostic_requirements": modification_plan.get("diagnostic_requirements", []),
+    })
 
     current.update(
         {
@@ -311,6 +370,7 @@ def main() -> int:
                     f"{now}: AgentTeam plan applied from {debate_path.relative_to(root)}"
                 ],
             },
+            "agentteam": agentteam,
             "updated_at": now,
         }
     )

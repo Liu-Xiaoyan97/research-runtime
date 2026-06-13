@@ -1,92 +1,112 @@
+# =========================
+# System / Python
+# =========================
 .DS_Store
 __pycache__/
 *.pyc
-
 .venv/
 venv/
 .env
 .env.*
-
 *.log
 *.tmp
-*.lock
 
-# Python / uv
+# uv cache
 .uv-cache/
 
-# Large model artifacts
+# codegraph index (local, rebuildable)
+.codegraph/
+
+# =========================
+# Model artifacts
+# =========================
 *.pt
 *.pth
 *.ckpt
 *.safetensors
 *.bin
 
-# Runtime: ignore everything by default
+# =========================
+# Manifest-installed Claude config (source: oh-my-autoresearch)
+# The whole .claude/ tree and the root CLAUDE.md are installed by the manifest
+# (copy_if_missing) plus the local settings override; do not track them here.
+# =========================
+/.claude/
+/CLAUDE.md
+
+# =========================
+# Output (always generated)
+# =========================
+output/**
+!output/.gitkeep
+
+# =========================
+# Project workspace (kept locally, never synced to remote)
+# =========================
+project/**
+!project/.gitkeep
+
+# =========================
+# Runtime (STRICT RULE MODEL)
+# =========================
+# Ignore everything in runtime by default, then re-include ONLY the
+# deployment-owned contract/state that must be committed:
+#   - runtime/objective/objective.yaml
+#   - runtime/state/*.json
+#   - runtime/knowledge/*.md
+#   - runtime/training/entrypoint.yaml
+#
+# Everything else under runtime/ is NOT tracked, because it is either
+# manifest-installable (runtime/CLAUDE.md, runtime/schemas) or a generated
+# research artifact (debates, experiments, history, logs).
 runtime/**
 
-# Runtime: keep only contract/state files
-!runtime/
-!runtime/CLAUDE.md
-
+# ---- objective (user-owned) ----
 !runtime/objective/
 !runtime/objective/objective.yaml
 
+# ---- state machine ----
 !runtime/state/
 !runtime/state/state.json
 !runtime/state/current_iteration.json
 !runtime/state/val_loss.json
+runtime/state/*.tmp
 
-!runtime/history/
-!runtime/history/timeline.json
-
+# ---- accumulated knowledge ----
 !runtime/knowledge/
 !runtime/knowledge/learned_patterns.md
 !runtime/knowledge/rejected_ideas.md
 
+# ---- training entrypoint (deployment-specific) ----
+!runtime/training/
+!runtime/training/entrypoint.yaml
+
+# ---- keep the debates directory present (its .md files stay untracked) ----
 !runtime/debates/
 !runtime/debates/.gitkeep
-!runtime/debates/*.md
 
-!runtime/experiments/
-!runtime/experiments/best.json
-!runtime/experiments/*.json
+# NOT tracked (left ignored by the default runtime/** rule):
+#   runtime/CLAUDE.md            (manifest-installable)
+#   runtime/schemas/             (manifest-installable; source = workflow)
+#   runtime/debates/*.md         (generated AgentTeam output)
+#   runtime/experiments/         (generated experiment records)
+#   runtime/history/             (generated timeline)
 
-# Still ignore large or noisy experiment files inside runtime
+# =========================
+# runtime noise
+# =========================
 runtime/**/logs/
 runtime/**/*.log
 runtime/**/*.out
 runtime/**/*.err
 runtime/**/*.tmp
 runtime/**/*.lock
+
+# =========================
+# safety: model artifacts inside runtime/project
+# =========================
 runtime/**/*.pt
 runtime/**/*.pth
 runtime/**/*.ckpt
 runtime/**/*.safetensors
 runtime/**/*.bin
-
-# Output is generated and should not be tracked except .gitkeep
-output/**
-!output/
-!output/.gitkeep
-
-.venv/
-
-
-# Project submodule working tree should not leak generated artifacts into runtime repo.
-project/nn-architecture/**
-!project/
-!project/.gitkeep
-project/**/.venv/
-project/**/__pycache__/
-project/**/*.pyc
-
-# Output is generated and should not be tracked except .gitkeep
-output/**
-!output/
-!output/.gitkeep
-
-# Local project workspace.
-# nn-architecture is developed separately and must not be committed into autoresearch-runtime.
-project/**
-!project/
-!project/.gitkeep

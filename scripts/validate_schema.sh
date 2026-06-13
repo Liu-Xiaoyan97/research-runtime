@@ -267,7 +267,54 @@ PY
 
 echo
 
-echo "== 5. Validate existing runtime experiment records =="
+echo "== 5. Current iteration agent-team contract tests =="
+"$PYTHON_BIN" - <<'PY'
+import copy
+import json
+from pathlib import Path
+
+from scripts.schema_contract import load_schema, validate_against_schema
+
+root = Path(".").resolve()
+schema = load_schema(root, "current_iteration.schema.json")
+template_path = root / "workflow/oh-my-autoresearch/templates/nn_architecture/runtime/state/current_iteration.json"
+template = json.loads(template_path.read_text(encoding="utf-8"))
+
+validate_against_schema(template, schema, "current_iteration.template")
+print("PASS: current_iteration template includes exact project-agent teams")
+
+bad = copy.deepcopy(template)
+bad["agentteam"]["b1_candidate_review"]["agents"] = [
+    "math-theorist",
+    "numerical-debugger",
+    "flow-arch-reviewer",
+]
+
+try:
+    validate_against_schema(bad, schema, "current_iteration.missing_team_leader")
+except ValueError as exc:
+    print("PASS: missing team-leader rejected:", exc)
+else:
+    raise SystemExit("FAIL: current_iteration accepted B1 agents without team-leader")
+
+bad_f1 = copy.deepcopy(template)
+bad_f1["agentteam"]["f1_evidence_review"]["agents"] = [
+    "math-theorist",
+    "numerical-debugger",
+    "flow-arch-reviewer",
+]
+
+try:
+    validate_against_schema(bad_f1, schema, "current_iteration.f1_missing_team_leader")
+except ValueError as exc:
+    print("PASS: F1 missing team-leader rejected:", exc)
+else:
+    raise SystemExit("FAIL: current_iteration accepted F1 agents without team-leader")
+PY
+
+echo
+
+echo "== 6. Validate existing runtime experiment records =="
 "$PYTHON_BIN" - <<'PY'
 import json
 from pathlib import Path
@@ -284,6 +331,10 @@ if not experiments_dir.is_dir():
 files = sorted(
     path for path in experiments_dir.glob("*.json")
     if path.name != "best.json"
+    # *.metrics.json is the raw trainer output (written by train.py), not a
+    # full experiment record; phase E consumes it to build the record. Do not
+    # validate it against experiment.schema.json.
+    and not path.name.endswith(".metrics.json")
 )
 
 if not files:
@@ -297,7 +348,7 @@ PY
 
 echo
 
-echo "== 6. Check phase scripts reference schema validation path =="
+echo "== 7. Check phase scripts reference schema validation path =="
 phase_b_refs=(
   "scripts/apply_agentteam_plan.py"
 )
@@ -338,10 +389,21 @@ for file in "${phase_ef_refs[@]}"; do
 done
 
 if grep -Eq "workflow\\.config\\.json|workflow_config_path" scripts/phases/phase_d_remote_launch.sh \
-  && grep -Eq "run_local_training|execution_mode.*local" scripts/phases/phase_d_remote_launch.sh; then
+  && grep -Eq "run_local_training|execution_mode.*local" scripts/phases/phase_d_remote_launch.sh \
+  && grep -Eq "main_pid|subprocess\\.Popen" scripts/phases/phase_d_remote_launch.sh; then
   echo "PASS: scripts/phases/phase_d_remote_launch.sh runs local training when remote training is disabled"
 else
-  echo "ERROR: scripts/phases/phase_d_remote_launch.sh does not appear to bind workflow.config.json remote_training=false to local training" >&2
+  echo "ERROR: scripts/phases/phase_d_remote_launch.sh does not appear to bind workflow.config.json remote_training=false to background local training with main_pid" >&2
+  exit 1
+fi
+
+if grep -Eq "crontab|install_monitor_cron" scripts/phases/phase_e_monitoring.sh \
+  && grep -Eq "monitor_interval_minutes.*10|\\*/10" scripts/phases/phase_e_monitoring.sh \
+  && grep -Eq "process_alive\\(|main_pid" scripts/phases/phase_e_monitoring.sh \
+  && grep -Eq "cancel_monitor_cron|cron_cancelled" scripts/phases/phase_e_monitoring.sh; then
+  echo "PASS: scripts/phases/phase_e_monitoring.sh creates 10-minute cron, checks main_pid first, and cancels cron on completion"
+else
+  echo "ERROR: scripts/phases/phase_e_monitoring.sh does not enforce cron-based main_pid-first monitoring" >&2
   exit 1
 fi
 

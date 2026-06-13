@@ -17,6 +17,9 @@ cd "$ROOT_DIR"
 
 "$PYTHON_BIN" - <<'PY'
 import json
+import os
+import shlex
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,6 +62,115 @@ def write_json_with_schema(path, data, schema, location):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def append_timeline(event_type, summary, best_val_loss=None):
+    timeline.setdefault("events", []).append({
+        "time": datetime.now(timezone.utc).isoformat(),
+        "iteration": state.get("iteration", current.get("iteration", 0)),
+        "exp_name": current.get("exp_name"),
+        "event_type": event_type,
+        "phase": "E",
+        "summary": summary,
+        "best_val_loss": best_val_loss,
+        "is_new_best": False,
+    })
+
+
+def process_alive(pid):
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid_int <= 0:
+        return False
+    try:
+        os.kill(pid_int, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_json_file(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def metrics_path_from_remote(remote_training):
+    metrics_file = remote_training.get("metrics_file")
+    if not isinstance(metrics_file, str) or not metrics_file:
+        return None
+    path = Path(metrics_file)
+    return path if path.is_absolute() else root / path
+
+
+def cron_marker(exp_name):
+    return f"autoresearch-monitor:{exp_name}"
+
+
+def read_crontab():
+    completed = subprocess.run(
+        ["crontab", "-l"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode == 0:
+        return completed.stdout.splitlines()
+    if "no crontab" in completed.stderr.lower():
+        return []
+    raise RuntimeError(completed.stderr.strip() or "crontab -l failed")
+
+
+def write_crontab(lines):
+    payload = "\n".join(lines).rstrip()
+    if payload:
+        payload += "\n"
+    completed = subprocess.run(
+        ["crontab", "-"],
+        input=payload,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "crontab install failed")
+
+
+def install_monitor_cron(exp_name):
+    marker = cron_marker(exp_name)
+    lines = read_crontab()
+    if any(marker in line for line in lines):
+        return marker
+
+    log_dir = root / "runtime/logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "phase_e_monitoring.log"
+    command = (
+        f"cd {shlex.quote(str(root))} && "
+        f"./scripts/phases/phase_e_monitoring.sh >> {shlex.quote(str(log_file))} 2>&1"
+    )
+    lines.append(f"*/10 * * * * {command} # {marker}")
+    write_crontab(lines)
+    return marker
+
+
+def cancel_monitor_cron(cron_id):
+    if not cron_id:
+        return False
+    lines = read_crontab()
+    filtered = [line for line in lines if cron_id not in line]
+    if filtered == lines:
+        return False
+    write_crontab(filtered)
+    return True
+
+
+def write_common_state():
+    write_json_with_schema(current_path, current, current_schema, str(current_path))
+    write_json_with_schema(timeline_path, timeline, timeline_schema, str(timeline_path))
+    write_json_with_schema(state_path, state, state_schema, str(state_path))
+
+
 validate_against_schema(state, state_schema, str(state_path))
 validate_against_schema(current, current_schema, str(current_path))
 validate_against_schema(timeline, timeline_schema, str(timeline_path))
@@ -96,6 +208,247 @@ print("== Phase E: Monitoring and Result Retrieval ==")
 print(f"exp_name: {exp_name}")
 print(f"remote_training.status: {remote_status}")
 print(f"remote_training.execution_mode: {remote_training.get('execution_mode')}")
+
+if remote_status == "running" and remote_training.get("execution_mode") == "local":
+    main_pid = remote_training.get("main_pid")
+    if not main_pid:
+        reason = "Phase E local monitoring requires remote_training.main_pid"
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_blocked", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    try:
+        cron_id = install_monitor_cron(exp_name)
+    except RuntimeError as exc:
+        reason = f"Phase E failed to install 10-minute cron monitor: {exc}"
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_cron_failed", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    current.setdefault("remote_training", {})
+    current["remote_training"]["cron_id"] = cron_id
+    current["remote_training"]["monitor_interval_minutes"] = 10
+    current["remote_training"]["last_checked_at"] = now
+
+    metrics_file = metrics_path_from_remote(current["remote_training"])
+    alive = process_alive(main_pid)
+
+    if alive:
+        if metrics_file and metrics_file.exists():
+            try:
+                partial_metrics = read_json_file(metrics_file)
+            except json.JSONDecodeError:
+                partial_metrics = {}
+            best_val_loss = partial_metrics.get("best_val_loss")
+            final_val_loss = partial_metrics.get("final_val_loss")
+            best_epoch = partial_metrics.get("best_epoch")
+            if best_val_loss is not None:
+                current["result"] = {
+                    "status": "pending",
+                    "best_val_loss": best_val_loss,
+                    "final_val_loss": final_val_loss,
+                    "best_epoch": best_epoch,
+                    "is_new_best": False,
+                }
+
+        current["updated_at"] = now
+        state.update({
+            "workflow_status": "running",
+            "phase": "E",
+            "phase_step": "E1",
+            "next_phase": "E",
+            "blocked": False,
+            "block_reason": None,
+            "updated_at": now,
+        })
+        append_timeline(
+            "phase_e_monitoring_active",
+            f"Phase E cron monitor active for main_pid={main_pid}; training process is still running.",
+            best_val_loss=current.get("result", {}).get("best_val_loss"),
+        )
+        write_common_state()
+        print(f"Training process main_pid={main_pid} is still running.")
+        print(f"cron_id: {cron_id}")
+        print("Phase E remains active; cron will check again in 10 minutes.")
+        raise SystemExit(0)
+
+    try:
+        cron_removed = cancel_monitor_cron(cron_id)
+    except RuntimeError as exc:
+        reason = f"Phase E detected finished training but failed to cancel cron {cron_id}: {exc}"
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_cron_cancel_failed", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    if metrics_file is None or not metrics_file.exists():
+        reason = f"Phase E detected finished training but metrics file is missing: {metrics_file}"
+        current["remote_training"]["status"] = "failed"
+        current["remote_training"]["ended_at"] = now
+        current["result"] = {
+            "status": "failed",
+            "best_val_loss": None,
+            "final_val_loss": None,
+            "best_epoch": None,
+            "is_new_best": False,
+        }
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_metrics_missing", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    try:
+        metrics = read_json_file(metrics_file)
+    except json.JSONDecodeError as exc:
+        reason = f"Phase E metrics file is invalid JSON: {metrics_file}: {exc}"
+        current["remote_training"]["status"] = "failed"
+        current["remote_training"]["ended_at"] = now
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_metrics_invalid", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    best_val_loss = metrics.get("best_val_loss")
+    final_val_loss = metrics.get("final_val_loss")
+    best_epoch = metrics.get("best_epoch")
+    metrics_exp_name = metrics.get("exp_name")
+
+    if metrics_exp_name is not None and metrics_exp_name != exp_name:
+        reason = f"Phase E metrics exp_name mismatch: expected {exp_name}, got {metrics_exp_name}"
+        current["remote_training"]["status"] = "failed"
+        current["remote_training"]["ended_at"] = now
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_metrics_mismatch", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    if best_val_loss is None:
+        reason = f"Phase E metrics missing best_val_loss: {metrics_file}"
+        current["remote_training"]["status"] = "failed"
+        current["remote_training"]["ended_at"] = now
+        state.update({
+            "workflow_status": "blocked",
+            "phase": "BLOCKED",
+            "phase_step": "BLOCKED",
+            "blocked": True,
+            "block_reason": reason,
+            "updated_at": now,
+        })
+        append_timeline("phase_e_metrics_incomplete", reason)
+        write_common_state()
+        raise SystemExit(reason)
+
+    current["remote_training"]["status"] = "succeeded"
+    current["remote_training"]["ended_at"] = now
+    current["remote_training"]["cron_cancelled_at"] = now
+    current["remote_training"]["cron_cancelled"] = cron_removed
+    current["result"] = {
+        "status": "succeeded",
+        "best_val_loss": best_val_loss,
+        "final_val_loss": final_val_loss,
+        "best_epoch": best_epoch,
+        "is_new_best": False,
+    }
+    current["updated_at"] = now
+
+    experiment_record = {
+        "exp_name": exp_name,
+        "iteration": current.get("iteration", state.get("iteration")),
+        "created_at": now,
+        "status": "succeeded",
+        "phase": "E",
+        "objective_summary": current.get("objective_summary"),
+        "selected_direction": current.get("selected_direction"),
+        "candidate_directions": current.get("candidate_directions", []),
+        "deduplicated_directions": current.get("deduplicated_directions", []),
+        "modification_plan": current.get("modification_plan"),
+        "code_change_summary": current.get("code_change_summary"),
+        "local_validation": current.get("local_validation", {}),
+        "remote_training": current["remote_training"],
+        "metrics": {
+            "best_val_loss": best_val_loss,
+            "final_val_loss": final_val_loss,
+            "best_epoch": best_epoch,
+            "loss_curve": metrics.get("loss_curve", []),
+        },
+        "notes": [
+            "Phase E detected that the main training process exited.",
+            f"main_pid={main_pid}",
+            f"cron_id={cron_id}",
+            f"cron_cancelled={cron_removed}",
+        ],
+    }
+
+    experiment_path = Path(f"runtime/experiments/{exp_name}.json")
+    write_json_with_schema(experiment_path, experiment_record, experiment_schema, str(experiment_path))
+
+    append_timeline(
+        "phase_e_training_completed",
+        f"Phase E detected training completion for main_pid={main_pid}, read val_loss, and cancelled cron {cron_id}.",
+        best_val_loss=best_val_loss,
+    )
+
+    state.update({
+        "workflow_status": "running",
+        "phase": "F",
+        "phase_step": "F1",
+        "next_phase": "F",
+        "blocked": False,
+        "block_reason": None,
+        "updated_at": now,
+    })
+
+    write_common_state()
+
+    print(f"Training process main_pid={main_pid} has exited.")
+    print(f"Cancelled cron_id: {cron_id}")
+    print(f"best_val_loss: {best_val_loss}")
+    print("Phase E completed. Advanced to Phase F/F1.")
+    raise SystemExit(0)
 
 experiment_metrics = {
     "best_val_loss": result.get("best_val_loss") if local_training_succeeded else None,

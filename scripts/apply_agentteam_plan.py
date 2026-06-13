@@ -48,6 +48,30 @@ def render_training_command(template: str, exp_name: str) -> str:
     return template.format(exp_name=exp_name)
 
 
+def open_team_lifecycle(required_agents: list[str]) -> dict[str, Any]:
+    return {
+        "required_agents": required_agents,
+        "completed_agents": [],
+        "all_agents_completed": False,
+        "team_leader_finalized": False,
+        "team_disbanded": False,
+        "disbanded_at": None,
+        "notes": [],
+    }
+
+
+def closed_team_lifecycle(required_agents: list[str], timestamp: str, note: str) -> dict[str, Any]:
+    return {
+        "required_agents": required_agents,
+        "completed_agents": required_agents,
+        "all_agents_completed": True,
+        "team_leader_finalized": True,
+        "team_disbanded": True,
+        "disbanded_at": timestamp,
+        "notes": [note],
+    }
+
+
 def ensure_agentteam_contract(current: dict[str, Any]) -> dict[str, Any]:
     agentteam = current.setdefault("agentteam", {})
     if "f1_evidence_review" not in agentteam and "f2_evidence_review" in agentteam:
@@ -57,22 +81,38 @@ def ensure_agentteam_contract(current: dict[str, Any]) -> dict[str, Any]:
     agentteam["b1_candidate_review"].update({
         "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
     })
+    agentteam["b1_candidate_review"].setdefault(
+        "team_lifecycle",
+        open_team_lifecycle(["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"]),
+    )
 
     agentteam.setdefault("b2_orthogonality_review", {})
     agentteam["b2_orthogonality_review"].update({
         "agent": "orthogonal-direction-scout",
         "agents": ["team-leader", "orthogonal-direction-scout"],
     })
+    agentteam["b2_orthogonality_review"].setdefault(
+        "team_lifecycle",
+        open_team_lifecycle(["team-leader", "orthogonal-direction-scout"]),
+    )
 
     agentteam.setdefault("b3_plan_selection", {})
     agentteam["b3_plan_selection"].update({
         "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
     })
+    agentteam["b3_plan_selection"].setdefault(
+        "team_lifecycle",
+        open_team_lifecycle(["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"]),
+    )
 
     agentteam.setdefault("f1_evidence_review", {})
     agentteam["f1_evidence_review"].update({
         "status": agentteam["f1_evidence_review"].get("status", "not_started"),
         "agents": ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+        "team_lifecycle": agentteam["f1_evidence_review"].get(
+            "team_lifecycle",
+            open_team_lifecycle(["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"]),
+        ),
         "summary": agentteam["f1_evidence_review"].get("summary"),
         "verdict": agentteam["f1_evidence_review"].get("verdict"),
         "missing_evidence": agentteam["f1_evidence_review"].get("missing_evidence", []),
@@ -149,6 +189,45 @@ def extract_matching_json_block(section: str, heading: str, validator) -> Any:
         f"No JSON block in section {heading} matched expected schema. "
         f"Errors: {'; '.join(errors)}"
     )
+
+
+B_REQUIRED_AGENTS = [
+    "team-leader",
+    "math-theorist",
+    "numerical-debugger",
+    "flow-arch-reviewer",
+    "orthogonal-direction-scout",
+]
+
+
+def require_execution_log(text: str) -> None:
+    """Structural anti-fabrication gate for Phase B.
+
+    The agent-authored debate file must contain an "Agent Team Execution Log"
+    that names every required B1/B2/B3 agent. Combined with the PreToolUse guard
+    (only project agents may author runtime/debates/**, never the main turn),
+    this makes it materially harder to fabricate a debate instead of running the
+    real AgentTeam.
+    """
+    try:
+        log_section = extract_section(text, "Agent Team Execution Log")
+    except ValueError as exc:
+        raise SystemExit(
+            "Debate file is missing the '## Agent Team Execution Log' section. "
+            "The team-leader must record which project agents ran for B1, B2, and "
+            "B3 before the plan can be applied. Do NOT fabricate this — invoke the "
+            "project agents."
+        ) from exc
+
+    lowered = log_section.lower()
+    missing = [agent for agent in B_REQUIRED_AGENTS if agent.lower() not in lowered]
+    if missing:
+        raise SystemExit(
+            "Agent Team Execution Log does not reference required agents: "
+            + ", ".join(missing)
+            + ". Every B1/B2/B3 project agent must be recorded. If their output is "
+            "missing, wait and re-invoke them — do not fabricate."
+        )
 
 
 def validate_candidate_directions(value: Any) -> list[dict[str, Any]]:
@@ -265,6 +344,7 @@ def main() -> int:
         raise SystemExit(f"Debate file not found: {debate_path}")
 
     text = debate_path.read_text(encoding="utf-8")
+    require_execution_log(text)
     phase_b_schema = load_schema(root, "phase_b_agentteam_output.schema.json")
 
     candidate_directions = extract_matching_json_block(
@@ -328,12 +408,22 @@ def main() -> int:
     agentteam["b1_candidate_review"].update({
         "status": "complete",
         "summary": "B1 project agents generated and stress-tested candidate directions.",
+        "team_lifecycle": closed_team_lifecycle(
+            ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+            now,
+            "B1 project-agent team completed, team-leader finalized, and team was disbanded.",
+        ),
         "candidate_count": len(candidate_directions),
         "blocking_issues": [],
     })
     agentteam["b2_orthogonality_review"].update({
         "status": "complete",
         "summary": "B2 project agents reviewed candidate orthogonality against runtime history.",
+        "team_lifecycle": closed_team_lifecycle(
+            ["team-leader", "orthogonal-direction-scout"],
+            now,
+            "B2 project-agent team completed, team-leader finalized, and team was disbanded.",
+        ),
         "accepted_candidates": [
             item.get("title", item.get("id", "unknown"))
             for item in deduplicated_directions
@@ -346,6 +436,11 @@ def main() -> int:
         "status": "complete",
         "selected_candidate": selected_title,
         "summary": "B3 project agents selected one concrete Phase C implementation plan.",
+        "team_lifecycle": closed_team_lifecycle(
+            ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+            now,
+            "B3 project-agent team completed, team-leader finalized, and team was disbanded.",
+        ),
         "implementation_risks": modification_plan.get("implementation_risks", []),
         "diagnostic_requirements": modification_plan.get("diagnostic_requirements", []),
     })

@@ -62,6 +62,39 @@ rejected = Path("runtime/knowledge/rejected_ideas.md").read_text(encoding="utf-8
 phase_step = state.get("phase_step", "B1")
 now = datetime.now(timezone.utc).isoformat()
 
+B1_B3_AGENTS = ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"]
+B2_AGENTS = ["team-leader", "orthogonal-direction-scout"]
+
+
+def team_section_complete(section, expected_agents):
+    if not isinstance(section, dict):
+        return False
+    lifecycle = section.get("team_lifecycle")
+    if not isinstance(lifecycle, dict):
+        return False
+    return (
+        section.get("status") == "complete"
+        and section.get("agents") == expected_agents
+        and lifecycle.get("required_agents") == expected_agents
+        and lifecycle.get("completed_agents") == expected_agents
+        and lifecycle.get("all_agents_completed") is True
+        and lifecycle.get("team_leader_finalized") is True
+        and lifecycle.get("team_disbanded") is True
+        and isinstance(lifecycle.get("disbanded_at"), str)
+        and bool(lifecycle.get("disbanded_at"))
+    )
+
+
+def phase_b_team_complete(current_iteration):
+    agentteam = current_iteration.get("agentteam")
+    if not isinstance(agentteam, dict):
+        return False
+    return (
+        team_section_complete(agentteam.get("b1_candidate_review"), B1_B3_AGENTS)
+        and team_section_complete(agentteam.get("b2_orthogonality_review"), B2_AGENTS)
+        and team_section_complete(agentteam.get("b3_plan_selection"), B1_B3_AGENTS)
+    )
+
 if phase_step == "B1":
     next_iteration = int(state.get("iteration", 0)) + 1
     exp_name = f"exp_{next_iteration:04d}_exploration"
@@ -117,6 +150,20 @@ if phase_step == "B1":
                     "numerical-debugger",
                     "flow-arch-reviewer",
                 ],
+                "team_lifecycle": {
+                    "required_agents": [
+                        "team-leader",
+                        "math-theorist",
+                        "numerical-debugger",
+                        "flow-arch-reviewer",
+                    ],
+                    "completed_agents": [],
+                    "all_agents_completed": False,
+                    "team_leader_finalized": False,
+                    "team_disbanded": False,
+                    "disbanded_at": None,
+                    "notes": [],
+                },
                 "summary": None,
                 "candidate_count": 0,
                 "blocking_issues": [],
@@ -128,6 +175,18 @@ if phase_step == "B1":
                     "team-leader",
                     "orthogonal-direction-scout",
                 ],
+                "team_lifecycle": {
+                    "required_agents": [
+                        "team-leader",
+                        "orthogonal-direction-scout",
+                    ],
+                    "completed_agents": [],
+                    "all_agents_completed": False,
+                    "team_leader_finalized": False,
+                    "team_disbanded": False,
+                    "disbanded_at": None,
+                    "notes": [],
+                },
                 "summary": None,
                 "accepted_candidates": [],
                 "rejected_candidates": [],
@@ -141,6 +200,20 @@ if phase_step == "B1":
                     "numerical-debugger",
                     "flow-arch-reviewer",
                 ],
+                "team_lifecycle": {
+                    "required_agents": [
+                        "team-leader",
+                        "math-theorist",
+                        "numerical-debugger",
+                        "flow-arch-reviewer",
+                    ],
+                    "completed_agents": [],
+                    "all_agents_completed": False,
+                    "team_leader_finalized": False,
+                    "team_disbanded": False,
+                    "disbanded_at": None,
+                    "notes": [],
+                },
                 "selected_candidate": None,
                 "summary": None,
                 "implementation_risks": [],
@@ -154,6 +227,20 @@ if phase_step == "B1":
                     "numerical-debugger",
                     "flow-arch-reviewer",
                 ],
+                "team_lifecycle": {
+                    "required_agents": [
+                        "team-leader",
+                        "math-theorist",
+                        "numerical-debugger",
+                        "flow-arch-reviewer",
+                    ],
+                    "completed_agents": [],
+                    "all_agents_completed": False,
+                    "team_leader_finalized": False,
+                    "team_disbanded": False,
+                    "disbanded_at": None,
+                    "notes": [],
+                },
                 "summary": None,
                 "verdict": None,
                 "missing_evidence": [],
@@ -187,7 +274,16 @@ if phase_step == "B1":
 
 WAITING_FOR_AGENTTEAM
 
-This file is generated by Phase B/B1. Claude must use the project agents in `.claude/agents/`, fill the required sections below, then update `runtime/state/current_iteration.json` and advance the workflow to Phase C/C1.
+This file is generated by Phase B/B1. It may be authored ONLY by the project
+agents in `.claude/agents/` (team-leader, math-theorist, numerical-debugger,
+flow-arch-reviewer, orthogonal-direction-scout). The PreToolUse guard blocks the
+main Claude turn from writing this file.
+
+The main turn must invoke the project agents and let THEM fill the sections
+below; it must not synthesize candidate directions, debate content, or a plan on
+its own. If the agents are slow or their output is incomplete, WAIT and
+re-invoke them — fabricating agent output to advance the loop is a protocol
+violation and is forbidden.
 
 ---
 
@@ -255,11 +351,22 @@ This file is generated by Phase B/B1. Claude must use the project agents in `.cl
 
 Generate candidate architecture modifications for `project/nn-architecture`.
 
-Use these exact project-agent teams:
+Use a FLAT (non-nested) AgentTeam. The orchestrator (main turn) invokes the
+specialists DIRECTLY and IN PARALLEL, then invokes `team-leader` only to
+reconcile. Do NOT invoke `team-leader` first and let it spawn the specialists —
+that nesting is forbidden, and `team-leader` has no agent-spawning tool.
 
-1. B1: `team-leader`, `math-theorist`, `numerical-debugger`, `flow-arch-reviewer`.
-2. B2: `team-leader`, `orthogonal-direction-scout`.
-3. B3: `team-leader`, `math-theorist`, `numerical-debugger`, `flow-arch-reviewer`.
+1. B1: orchestrator invokes `math-theorist`, `numerical-debugger`,
+   `flow-arch-reviewer` in parallel; then `team-leader` reconciles.
+2. B2: orchestrator invokes `orthogonal-direction-scout`; then `team-leader`
+   reconciles.
+3. B3: orchestrator invokes `math-theorist`, `numerical-debugger`,
+   `flow-arch-reviewer` in parallel; then `team-leader` reconciles and confirms
+   one plan.
+
+The main Claude turn must not manually replace the project-agent discussion.
+Invoke the named project agents, let them record their outputs in this file, and
+only then apply the plan via `./scripts/apply_agentteam_plan.py --advance`.
 
 The team must produce:
 
@@ -308,7 +415,11 @@ Write the debate summary here.
 ## Agent Team Execution Log
 
 Record which project agents were invoked for B1, B2, and B3. Include minority
-objections and the team-leader reconciliation decision for each step.
+objections and the team-leader reconciliation decision for each step. The
+team-leader must wait for every required agent to finish, then explicitly
+finalize and disband the team. Do not advance to Phase C until
+`team_lifecycle.all_agents_completed`, `team_lifecycle.team_leader_finalized`,
+and `team_lifecycle.team_disbanded` are all true for B1, B2, and B3.
 
 ## Selected Direction
 
@@ -326,29 +437,24 @@ null
 
 # Required Runtime Updates After Filling This File
 
-After AgentTeam produces a real plan, update:
-
-```text
-runtime/state/current_iteration.json
-```
-
-Required fields:
-
-```json
-{{
-  "candidate_directions": "...",
-  "deduplicated_directions": "...",
-  "selected_direction": "...",
-  "modification_plan": "...",
-  "local_validation.commands": "..."
-}}
-```
-
-Then run:
+Runtime state is script-owned. Once the project agents have filled the four JSON
+sections above (Candidate Directions, Deduplicated Directions, Selected
+Direction, Modification Plan) AND the Agent Team Execution Log naming every
+required agent, the plan is written into
+`runtime/state/current_iteration.json` and the workflow advances to Phase C
+ONLY through the sanctioned script:
 
 ```bash
-./scripts/set_phase.sh C C1
+cd /Users/liuxiaoyan/workspace/research-runtime
+./scripts/apply_agentteam_plan.py --advance
+./scripts/run_loop.sh
 ```
+
+Do not hand-edit `runtime/state/current_iteration.json` or run
+`./scripts/set_phase.sh` to jump ahead — the PreToolUse guard blocks the former
+and `set_phase.sh` refuses non-adjacent phase jumps. `apply_agentteam_plan.py`
+parses this file, validates it against the workflow schema, and refuses to apply
+a fabricated or incomplete debate.
 """
 
     debate_path.write_text(debate_text, encoding="utf-8")
@@ -413,8 +519,18 @@ if phase_step == "B2":
 
     if not current.get("modification_plan") or not current.get("selected_direction"):
         print("AgentTeam output is not ready.")
-        print("Fill the debate file and update current_iteration.json, then run:")
-        print("./scripts/set_phase.sh C C1")
+        print("The project agents must author the debate file (the main turn is")
+        print("blocked from writing runtime/debates/**). Do NOT fabricate it.")
+        print("Once the agents have filled it, apply the plan and advance with:")
+        print("  ./scripts/apply_agentteam_plan.py --advance")
+        print("  ./scripts/run_loop.sh")
+        raise SystemExit(0)
+
+    if not phase_b_team_complete(current):
+        print("AgentTeam output is not ready.")
+        print("B1, B2, and B3 must all have status=complete, exact completed_agents,")
+        print("all_agents_completed=true, team_leader_finalized=true, and team_disbanded=true.")
+        print("The team-leader must explicitly finalize and disband the team before Phase C.")
         raise SystemExit(0)
 
     state.update({

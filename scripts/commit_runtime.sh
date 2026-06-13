@@ -47,9 +47,7 @@ git add \
   runtime/knowledge/learned_patterns.md \
   runtime/knowledge/rejected_ideas.md \
   runtime/debates/.gitkeep \
-  runtime/debates/*.md \
   runtime/experiments/best.json \
-  runtime/experiments/*.json \
   2>/dev/null || true
 
 # Safety check: block accidentally staged logs, checkpoints, or large model artifacts.

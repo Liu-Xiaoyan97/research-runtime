@@ -87,6 +87,20 @@ def ensure_agentteam_contract(data):
         "numerical-debugger",
         "flow-arch-reviewer",
     ]
+    agentteam["b1_candidate_review"].setdefault("team_lifecycle", {
+        "required_agents": [
+            "team-leader",
+            "math-theorist",
+            "numerical-debugger",
+            "flow-arch-reviewer",
+        ],
+        "completed_agents": [],
+        "all_agents_completed": False,
+        "team_leader_finalized": False,
+        "team_disbanded": False,
+        "disbanded_at": None,
+        "notes": [],
+    })
 
     agentteam.setdefault("b2_orthogonality_review", {
         "status": "not_started",
@@ -101,6 +115,18 @@ def ensure_agentteam_contract(data):
         "team-leader",
         "orthogonal-direction-scout",
     ]
+    agentteam["b2_orthogonality_review"].setdefault("team_lifecycle", {
+        "required_agents": [
+            "team-leader",
+            "orthogonal-direction-scout",
+        ],
+        "completed_agents": [],
+        "all_agents_completed": False,
+        "team_leader_finalized": False,
+        "team_disbanded": False,
+        "disbanded_at": None,
+        "notes": [],
+    })
 
     agentteam.setdefault("b3_plan_selection", {
         "status": "not_started",
@@ -115,6 +141,20 @@ def ensure_agentteam_contract(data):
         "numerical-debugger",
         "flow-arch-reviewer",
     ]
+    agentteam["b3_plan_selection"].setdefault("team_lifecycle", {
+        "required_agents": [
+            "team-leader",
+            "math-theorist",
+            "numerical-debugger",
+            "flow-arch-reviewer",
+        ],
+        "completed_agents": [],
+        "all_agents_completed": False,
+        "team_leader_finalized": False,
+        "team_disbanded": False,
+        "disbanded_at": None,
+        "notes": [],
+    })
 
     agentteam.setdefault("f1_evidence_review", {
         "status": "not_started",
@@ -128,12 +168,45 @@ def ensure_agentteam_contract(data):
         "numerical-debugger",
         "flow-arch-reviewer",
     ]
+    agentteam["f1_evidence_review"].setdefault("team_lifecycle", {
+        "required_agents": [
+            "team-leader",
+            "math-theorist",
+            "numerical-debugger",
+            "flow-arch-reviewer",
+        ],
+        "completed_agents": [],
+        "all_agents_completed": False,
+        "team_leader_finalized": False,
+        "team_disbanded": False,
+        "disbanded_at": None,
+        "notes": [],
+    })
     data.setdefault("root_cause_analysis", {
         "status": "not_started",
         "agent_votes": [],
         "verdict": None,
         "summary": None,
     })
+
+
+def team_section_complete(section, expected_agents):
+    if not isinstance(section, dict):
+        return False
+    lifecycle = section.get("team_lifecycle")
+    if not isinstance(lifecycle, dict):
+        return False
+    return (
+        section.get("status") == "complete"
+        and section.get("agents") == expected_agents
+        and lifecycle.get("required_agents") == expected_agents
+        and lifecycle.get("completed_agents") == expected_agents
+        and lifecycle.get("all_agents_completed") is True
+        and lifecycle.get("team_leader_finalized") is True
+        and lifecycle.get("team_disbanded") is True
+        and isinstance(lifecycle.get("disbanded_at"), str)
+        and bool(lifecycle.get("disbanded_at"))
+    )
 
 
 ensure_agentteam_contract(current)
@@ -202,8 +275,12 @@ is_new_best = False
 
 f1_review = current["agentteam"]["f1_evidence_review"]
 root_cause = current["root_cause_analysis"]
+f1_team_complete = team_section_complete(
+    f1_review,
+    ["team-leader", "math-theorist", "numerical-debugger", "flow-arch-reviewer"],
+)
 if state.get("phase_step", "F1") == "F1" and (
-    f1_review.get("status") != "complete" or root_cause.get("verdict") is None
+    not f1_team_complete or root_cause.get("verdict") is None
 ):
     review_path = Path(f"runtime/debates/{exp_name}_f1_review.md")
     if not review_path.exists():
@@ -218,13 +295,19 @@ WAITING_FOR_AGENTTEAM_F1
 
 Claude must use the project agents in `.claude/agents/` and complete the F1
 evidence review before Phase F writes checkpoints or learned/rejected knowledge.
+The main Claude turn must not manually replace this review. Invoke the named
+project agents and record their outputs before writing the F1 verdict.
 
-## Required Project Agents
+## Required Project Agents (FLAT — no nesting)
 
-1. `team-leader`
-2. `math-theorist`
-3. `numerical-debugger`
-4. `flow-arch-reviewer`
+The orchestrator (main turn) invokes the specialists DIRECTLY and IN PARALLEL,
+then invokes `team-leader` only to reconcile. Do NOT invoke `team-leader` first
+and let it spawn the specialists — that nesting is forbidden.
+
+1. `math-theorist` (invoked by orchestrator)
+2. `numerical-debugger` (invoked by orchestrator)
+3. `flow-arch-reviewer` (invoked by orchestrator)
+4. `team-leader` (invoked last; reconciles, does not spawn)
 
 ## Experiment Record
 
@@ -240,43 +323,50 @@ evidence review before Phase F writes checkpoints or learned/rejected knowledge.
 
 ## Required Review
 
-- `team-leader` coordinates the review and records the final reconciliation.
+- `team-leader` reconciles the specialists' recorded outputs and records the
+  final reconciliation. It does NOT spawn the specialists (no nesting).
 - `math-theorist` decides whether the result supports or contradicts the original hypothesis.
 - `numerical-debugger` checks whether metrics are trustworthy or contaminated by implementation, data, solver, or logging issues.
 - `flow-arch-reviewer` decides whether the lesson is actionable and what the next research move should be.
 
-## Required Runtime Updates
+## F1 Verdict
 
-Update `runtime/state/current_iteration.json` so that:
+The `team-leader` must fill this machine-readable block. `apply_f1_review.py`
+parses it and writes the verdict into runtime state. Do NOT hand-edit
+`runtime/state/current_iteration.json` — the PreToolUse guard will block it.
 
 ```json
 {{
-  "agentteam.f1_evidence_review.status": "complete",
-  "agentteam.f1_evidence_review.agents": [
-    "team-leader",
-    "math-theorist",
-    "numerical-debugger",
-    "flow-arch-reviewer"
-  ],
-  "agentteam.f1_evidence_review.summary": "...",
-  "agentteam.f1_evidence_review.verdict": "learned | rejected | inconclusive",
-  "agentteam.f1_evidence_review.missing_evidence": [],
-  "root_cause_analysis.status": "complete",
-  "root_cause_analysis.agent_votes": [],
-  "root_cause_analysis.verdict": "learned | rejected | inconclusive",
-  "root_cause_analysis.summary": "..."
+  "verdict": "learned | rejected | inconclusive",
+  "summary": "evidence-grounded reconciliation written by team-leader",
+  "missing_evidence": [],
+  "agent_votes": [
+    {{"agent": "math-theorist", "verdict": "learned | rejected | inconclusive", "rationale": "..."}},
+    {{"agent": "numerical-debugger", "verdict": "learned | rejected | inconclusive", "rationale": "..."}},
+    {{"agent": "flow-arch-reviewer", "verdict": "learned | rejected | inconclusive", "rationale": "..."}}
+  ]
 }}
 ```
 
-The full schema is embedded here:
+## Agent Team Execution Log
 
-```json
-{current_schema_json}
-```
+Record each F1 project agent's contribution — `team-leader`, `math-theorist`,
+`numerical-debugger`, and `flow-arch-reviewer` — including minority objections
+and the team-leader reconciliation. Every required agent MUST be named here;
+`apply_f1_review.py` refuses to apply a verdict otherwise.
 
-After the review is complete, rerun:
+This review file may only be authored by the F1 project agents. The main Claude
+turn must not write it. If agent output is missing or incomplete, WAIT and
+re-invoke the agents — do not fabricate the review.
+
+## Required Runtime Updates
+
+Runtime state is script-owned. After the F1 agents fill the sections above, the
+verdict reaches `runtime/state/current_iteration.json` ONLY through:
 
 ```bash
+cd /Users/liuxiaoyan/workspace/research-runtime
+./scripts/apply_f1_review.py
 ./scripts/run_loop.sh
 ```
 """
@@ -311,6 +401,7 @@ After the review is complete, rerun:
     print("== Phase F/F1: Waiting for AgentTeam Evidence Review ==")
     print(f"exp_name: {exp_name}")
     print(f"review_path: {review_path}")
+    print("F1 requires every project agent to finish and the team-leader to finalize and disband the team.")
     print("Fill runtime/state/current_iteration.json with the F1 review, then rerun ./scripts/run_loop.sh.")
     raise SystemExit(0)
 
@@ -524,6 +615,20 @@ next_current = {
                 "numerical-debugger",
                 "flow-arch-reviewer",
             ],
+            "team_lifecycle": {
+                "required_agents": [
+                    "team-leader",
+                    "math-theorist",
+                    "numerical-debugger",
+                    "flow-arch-reviewer",
+                ],
+                "completed_agents": [],
+                "all_agents_completed": False,
+                "team_leader_finalized": False,
+                "team_disbanded": False,
+                "disbanded_at": None,
+                "notes": [],
+            },
             "summary": None,
             "candidate_count": 0,
             "blocking_issues": [],
@@ -535,6 +640,18 @@ next_current = {
                 "team-leader",
                 "orthogonal-direction-scout",
             ],
+            "team_lifecycle": {
+                "required_agents": [
+                    "team-leader",
+                    "orthogonal-direction-scout",
+                ],
+                "completed_agents": [],
+                "all_agents_completed": False,
+                "team_leader_finalized": False,
+                "team_disbanded": False,
+                "disbanded_at": None,
+                "notes": [],
+            },
             "summary": None,
             "accepted_candidates": [],
             "rejected_candidates": [],
@@ -548,6 +665,20 @@ next_current = {
                 "numerical-debugger",
                 "flow-arch-reviewer",
             ],
+            "team_lifecycle": {
+                "required_agents": [
+                    "team-leader",
+                    "math-theorist",
+                    "numerical-debugger",
+                    "flow-arch-reviewer",
+                ],
+                "completed_agents": [],
+                "all_agents_completed": False,
+                "team_leader_finalized": False,
+                "team_disbanded": False,
+                "disbanded_at": None,
+                "notes": [],
+            },
             "selected_candidate": None,
             "summary": None,
             "implementation_risks": [],
@@ -561,6 +692,20 @@ next_current = {
                 "numerical-debugger",
                 "flow-arch-reviewer",
             ],
+            "team_lifecycle": {
+                "required_agents": [
+                    "team-leader",
+                    "math-theorist",
+                    "numerical-debugger",
+                    "flow-arch-reviewer",
+                ],
+                "completed_agents": [],
+                "all_agents_completed": False,
+                "team_leader_finalized": False,
+                "team_disbanded": False,
+                "disbanded_at": None,
+                "notes": [],
+            },
             "summary": None,
             "verdict": None,
             "missing_evidence": [],

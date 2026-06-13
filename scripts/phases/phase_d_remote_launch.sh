@@ -163,100 +163,60 @@ def run_local_training(exp_name: str) -> None:
     metrics_path = render_template(metrics_file_template, exp_name) if isinstance(metrics_file_template, str) else None
     metrics_file = root / metrics_path if metrics_path and not Path(metrics_path).is_absolute() else Path(metrics_path) if metrics_path else None
 
+    log_path_template = local.get("log_path", "runtime/logs/{exp_name}.train.log")
+    log_path = render_template(log_path_template, exp_name) if isinstance(log_path_template, str) else None
+    log_file = root / log_path if log_path and not Path(log_path).is_absolute() else Path(log_path) if log_path else root / f"runtime/logs/{exp_name}.train.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
     started_at = datetime.now(timezone.utc).isoformat()
     print("Remote training disabled by workflow.config.json; running local training in Phase D.")
     print(f"+ cd {project_dir.relative_to(root) if project_dir.is_relative_to(root) else project_dir} && {train_command}")
 
-    completed = subprocess.run(
-        train_command,
-        cwd=project_dir,
-        shell=True,
-        text=True,
-    )
-    ended_at = datetime.now(timezone.utc).isoformat()
+    log_handle = log_file.open("ab")
+    try:
+        process = subprocess.Popen(
+            train_command,
+            cwd=project_dir,
+            shell=True,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    finally:
+        log_handle.close()
 
     current["remote_training"] = {
-        "status": "succeeded" if completed.returncode == 0 else "failed",
+        "status": "running",
         "execution_mode": "local",
         "server": None,
         "remote_dir": str(project_dir.relative_to(root) if project_dir.is_relative_to(root) else project_dir),
         "train_command": train_command,
+        "main_pid": process.pid,
         "cron_id": None,
-        "log_path": None,
+        "monitor_interval_minutes": 10,
+        "log_path": str(log_file.relative_to(root) if log_file.is_relative_to(root) else log_file),
         "metrics_file": str(metrics_file.relative_to(root) if metrics_file and metrics_file.is_relative_to(root) else metrics_file) if metrics_file else None,
         "started_at": started_at,
-        "ended_at": ended_at,
+        "ended_at": None,
         "notes": [
-            "Local training was run in Phase D because workflow.config.json remote_training.enable/enabled is false."
+            "Local training was launched in Phase D because workflow.config.json remote_training.enable/enabled is false.",
+            "Phase E must install a cron monitor, check main_pid first, then read metrics only after the process exits."
         ],
     }
-
-    if completed.returncode != 0:
-        current.setdefault("result", {}).update({
-            "status": "failed",
-            "best_val_loss": None,
-            "final_val_loss": None,
-            "best_epoch": None,
-            "is_new_best": False,
-        })
-        current["updated_at"] = ended_at
-        block(f"Phase D local training failed with exit code {completed.returncode}")
-        raise SystemExit(1)
-
-    if metrics_file is None or not metrics_file.exists():
-        current.setdefault("result", {}).update({
-            "status": "failed",
-            "best_val_loss": None,
-            "final_val_loss": None,
-            "best_epoch": None,
-            "is_new_best": False,
-        })
-        current["remote_training"]["status"] = "failed"
-        current["updated_at"] = ended_at
-        block(f"Phase D local training did not produce metrics file: {metrics_file}")
-        raise SystemExit(1)
-
-    try:
-        metrics = json.loads(metrics_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        current["remote_training"]["status"] = "failed"
-        current["updated_at"] = ended_at
-        block(f"Phase D local training metrics file is invalid JSON: {metrics_file}: {exc}")
-        raise SystemExit(1)
-
-    best_val_loss = metrics.get("best_val_loss")
-    final_val_loss = metrics.get("final_val_loss")
-    best_epoch = metrics.get("best_epoch")
-    metrics_exp_name = metrics.get("exp_name")
-
-    if metrics_exp_name is not None and metrics_exp_name != exp_name:
-        current["remote_training"]["status"] = "failed"
-        current["updated_at"] = ended_at
-        block(
-            f"Phase D local training metrics exp_name mismatch: expected {exp_name}, got {metrics_exp_name}"
-        )
-        raise SystemExit(1)
-
-    if best_val_loss is None:
-        current["remote_training"]["status"] = "failed"
-        current["updated_at"] = ended_at
-        block(f"Phase D local training metrics missing best_val_loss: {metrics_file}")
-        raise SystemExit(1)
-
     current["result"] = {
-        "status": "succeeded",
-        "best_val_loss": best_val_loss,
-        "final_val_loss": final_val_loss,
-        "best_epoch": best_epoch,
+        "status": "pending",
+        "best_val_loss": None,
+        "final_val_loss": None,
+        "best_epoch": None,
         "is_new_best": False,
     }
-    current["updated_at"] = ended_at
+    current["updated_at"] = started_at
 
     append_timeline(
-        "phase_d_local_training_completed",
+        "phase_d_local_training_started",
         "D",
-        "Local training completed in Phase D because remote training is disabled.",
-        best_val_loss=best_val_loss,
+        f"Local training started in background with main_pid={process.pid}. Phase E will monitor by cron.",
+        best_val_loss=None,
     )
 
     state.update({
@@ -266,14 +226,14 @@ def run_local_training(exp_name: str) -> None:
         "next_phase": "E",
         "blocked": False,
         "block_reason": None,
-        "updated_at": ended_at,
+        "updated_at": started_at,
     })
 
     write_json_with_schema(current_path, current, current_schema)
     write_json_with_schema(timeline_path, timeline, timeline_schema)
     write_json_with_schema(state_path, state, state_schema)
 
-    print("Phase D local training completed. Advanced to Phase E/E1.")
+    print(f"Phase D local training started with main_pid={process.pid}. Advanced to Phase E/E1.")
 
 if state.get("phase") != "D":
     print(f"Phase D skipped. Current phase is {state.get('phase')}.")

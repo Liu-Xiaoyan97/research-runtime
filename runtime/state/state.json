@@ -1,12 +1,12 @@
 {
-  "workflow_status": "running",
-  "phase": "F",
-  "phase_step": "F1",
+  "workflow_status": "blocked",
+  "phase": "BLOCKED",
+  "phase_step": "BLOCKED",
   "iteration": 1,
   "current_exp_name": "exp_0001_exploration",
-  "next_phase": "F",
-  "blocked": false,
-  "block_reason": null,
+  "next_phase": "BLOCKED",
+  "blocked": true,
+  "block_reason": "Framework refactor complete and pushed (flat AgentTeam: read-only specialists + team-leader sole writer + coder; $CLAUDE_PROJECT_DIR hooks). Paused at B/B2 pending decision to drive the Phase B AgentTeam for exp_0001. Resume: ./scripts/set_phase.sh B B2 (then drive agents) or ./scripts/run_loop.sh.",
   "last_error": null,
-  "updated_at": "2026-06-13T06:37:21.216517+00:00"
+  "updated_at": "2026-06-13T06:39:28.845115+00:00"
 }

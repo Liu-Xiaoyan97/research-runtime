@@ -34,6 +34,9 @@ venv/
 /.claude/
 /CLAUDE.md
 
+# Operational scripts are manifest-installed from oh-my-autoresearch (scripts/runtime/)
+/scripts/
+
 # =========================
 # Output (always generated)
 # =========================

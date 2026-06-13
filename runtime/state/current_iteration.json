@@ -230,7 +230,7 @@
       "diagnostic_requirements": []
     },
     "f1_evidence_review": {
-      "status": "in_progress",
+      "status": "complete",
       "agents": [
         "team-leader",
         "math-theorist",
@@ -244,16 +244,25 @@
           "numerical-debugger",
           "flow-arch-reviewer"
         ],
-        "completed_agents": [],
-        "all_agents_completed": false,
-        "team_leader_finalized": false,
-        "team_disbanded": false,
-        "disbanded_at": null,
-        "notes": []
+        "completed_agents": [
+          "team-leader",
+          "math-theorist",
+          "numerical-debugger",
+          "flow-arch-reviewer"
+        ],
+        "all_agents_completed": true,
+        "team_leader_finalized": true,
+        "team_disbanded": true,
+        "disbanded_at": "2026-06-13T06:48:50.263720+00:00",
+        "notes": [
+          "F1 project-agent team completed, team-leader finalized, and team was disbanded."
+        ]
       },
-      "summary": null,
-      "verdict": null,
-      "missing_evidence": []
+      "summary": "The experiment did not test the selected direction (Shared-norm parallel block with Pre-LN residual path and variance scaling). Phase C local validation correctly included --use-parallel-block, --use-pre-ln, --use-qk-norm, --use-rope flags. However, Phase D training used the static entrypoint.yaml template which does NOT inject these architecture flags. The Phase D train_command ran the DEFAULT TransformerBlock (Post-LN, separate ln_1/ln_2, no variance scaling). The reported val_loss=5.97807 is a Post-LN baseline, not a measurement of the ParallelTransformerBlock variant. The code change in model.py is correct but was never exercised during the actual training run. This is a flag propagation failure between the modification plan and the training entrypoint. The selected direction remains untested. All three specialist agents unanimously agree on inconclusive.",
+      "verdict": "inconclusive",
+      "missing_evidence": [
+        "Validated training run with --use-parallel-block flag actually exercising the modified ParallelTransformerBlock"
+      ]
     }
   },
   "local_validation": {
@@ -299,12 +308,28 @@
     "is_new_best": false
   },
   "root_cause_analysis": {
-    "status": "in_progress",
-    "agent_votes": [],
-    "verdict": null,
-    "summary": null
+    "status": "complete",
+    "agent_votes": [
+      {
+        "agent": "math-theorist",
+        "verdict": "inconclusive",
+        "rationale": "The experiment did not test the selected direction. Phase D training ran with the default TransformerBlock (Post-LN) because the --use-parallel-block flag was not passed. The val_loss=5.9781 is a Post-LN baseline, not evidence for or against the Shared-norm parallel block hypothesis. The original hypothesis (Pre-LN gradient flow stability improves training) remains untested."
+      },
+      {
+        "agent": "numerical-debugger",
+        "verdict": "inconclusive",
+        "rationale": "Flag propagation failure detected. Phase C local validation included --use-parallel-block and other architecture flags in its command. Phase D training did not -- the train_command from entrypoint.yaml is static and does not inherit flags from the modification plan. The entrypoint.yaml template at runtime/training/entrypoint.yaml has no mechanism to inject per-experiment architecture flags. val_loss=5.9781 is reasonable for a 50-step Post-LN baseline (train_loss converged from 11.21 to 6.27, val_loss at 5.98 is consistent). The metrics are trustworthy for what was actually trained, but what was trained was not the intended experiment."
+      },
+      {
+        "agent": "flow-arch-reviewer",
+        "verdict": "inconclusive",
+        "rationale": "The experiment is architecturally invalid for evaluating the selected direction. The ParallelTransformerBlock code change was implemented correctly in model.py (shared ln_1, 1/sqrt(2) scaling), but the Phase D training command did not activate it. The default code path (TransformerBlock with Post-LN, separate ln_1/ln_2) was used instead. No architectural conclusion can be drawn from this run. The root cause is an infrastructure gap: the entrypoint.yaml template is static and does not propagate architecture flags from the modification plan to the training command."
+      }
+    ],
+    "verdict": "inconclusive",
+    "summary": "The experiment did not test the selected direction (Shared-norm parallel block with Pre-LN residual path and variance scaling). Phase C local validation correctly included --use-parallel-block, --use-pre-ln, --use-qk-norm, --use-rope flags. However, Phase D training used the static entrypoint.yaml template which does NOT inject these architecture flags. The Phase D train_command ran the DEFAULT TransformerBlock (Post-LN, separate ln_1/ln_2, no variance scaling). The reported val_loss=5.97807 is a Post-LN baseline, not a measurement of the ParallelTransformerBlock variant. The code change in model.py is correct but was never exercised during the actual training run. This is a flag propagation failure between the modification plan and the training entrypoint. The selected direction remains untested. All three specialist agents unanimously agree on inconclusive."
   },
-  "updated_at": "2026-06-13T06:37:21.216517+00:00",
+  "updated_at": "2026-06-13T06:48:50.263720+00:00",
   "selected_direction_detail": {
     "title": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
     "rationale": "Two of three agent teams (math-theorist and flow-arch-reviewer) converge on this direction as the highest-impact change. It addresses the core gradient flow instability inherent in Post-LN architectures, aligns with the PaLM canonical form validated at 540B scale, and simultaneously resolves three issues: Pre-LN gradient path, shared-norm divergent gradients, and parallel output variance scaling. The numerical-debugger's dissent (favoring training hygiene fixes) is valid but secondary — training improvements benefit any architecture, whereas the architectural correction is a prerequisite for clean evaluation of subsequent modifications.",

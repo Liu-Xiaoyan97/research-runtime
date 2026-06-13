@@ -2,133 +2,14 @@
   "exp_name": "exp_0001_exploration",
   "iteration": 1,
   "objective_summary": "Explore neural network architecture variants that reduce validation loss\ncompared with the current baseline while keeping implementation complexity\nand compute cost under control.\n",
-  "selected_direction": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-  "candidate_directions": [
-    {
-      "source": "math-theorist",
-      "title": "Pre-LayerNorm for gradient flow stabilization",
-      "rationale": "Post-LN applies normalization after the residual addition: x = LN(x + F(x)). The gradient of the loss L with respect to the pre-residual stream x_l must propagate through the Jacobian of LN at every layer: ∂L/∂x_l = ∏_{k=l}^{L-1} (∂LN/∂(x+F(x)))_{k} · (I + ∂F/∂x)_{k}. The Jacobian of LayerNorm is (1/σ)(I - (1/d)11^T - (1/d)xx^T/σ^2), whose spectral norm depends on the ratio μ/σ. When layer activations drift (common in deep Post-LN), gradient magnitude fluctuates across layers, causing the optimization landscape to develop sharp directions (Xiong et al., 2020). Pre-LN instead routes: x = x + F(LN(x)), so the residual pathway is always the identity I in the backward pass. This ensures ∂L/∂x_l receives an additive gradient of constant magnitude from every deeper layer, regardless of the sublayer Jacobian. Formally, the gradient flow through the skip connections satisfies ||∂L/∂x_l|| >= ||∂L/∂x_{L-1}|| for all l, which Post-LN cannot guarantee. The 50-step training budget makes stable gradient flow especially critical, since there is no room for the optimizer to recover from early instability.",
-      "implementation_hint": "Set config.use_pre_ln = True in the default GPT2Config. The model already supports this via the TransformerBlock branch: x = x + attn(ln_1(x)); x = x + mlp(ln_2(x)). Verify that the final ln_f is still applied after the last block. Consider also pairing with ln_init_random=False (standard init) since Pre-LN's stability does not depend on symmetry-breaking initialization. No other code changes are needed — the flag already exists.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "source": "math-theorist",
-      "title": "SwiGLU gated activation for MLP expressivity",
-      "rationale": "The current MLP uses a pointwise activation: h = GELU(xW_1)W_2. GELU is a fixed nonlinearity with no data-dependent modulation. SwiGLU replaces this with h = (SiLU(xW_gate) ⊙ xW_value)W_proj, where SiLU(x) = x·σ(x) and ⊙ is elementwise multiplication. This is not merely an activation change — it fundamentally alters the function class. The gating mechanism implements h_j = Σ_k SiLU(Σ_i x_i W^gate_{ik}) · (Σ_i x_i W^value_{ik}) · W^proj_{kj}, which is a rank-decomposed bilinear form in the pre-activation space. By the universal approximation theorem for products of linear functions (Ge et al., 2015), this architecture can represent any polynomial activation with fewer parameters than a deeper MLP with pointwise activations. More concretely, the gating creates a conditional computation path: the gate Σ_i x_i W^gate selects which value dimensions are activated, allowing the network to route information based on the input rather than applying a fixed nonlinearity. Empirically, SwiGLU consistently outperforms GELU in transformer MLPs at matched parameter counts (Shazeer, 2020; Touvron et al., 2023). The implementation already exists in the codebase under the use_swiglu flag.",
-      "implementation_hint": "Set config.use_swiglu = True. The MLP class already implements SwiGLU with n_inner = (8/3) * n_embd, which compensates for the extra gate projection. The model uses c_fc1 (gate projection), c_fc2 (value projection), and c_proj (output projection). Total parameter count increases slightly: the MLP goes from 2*(768*3072) + 768 + 3072 = 4,722,432 to 3*(768*2048) + 768 + 2048 = 4,721,664 (approximately matched). No code changes needed beyond flipping the flag. Note: SwiGLU replaces GELU entirely, so if other directions also modify the activation, this must be coordinated.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "source": "math-theorist",
-      "title": "Rotary position embeddings for relative position encoding",
-      "rationale": "The current model uses learned absolute position embeddings W_pe ∈ R^{L×d}, added to token embeddings. This has two mathematical weaknesses. First, it encodes position as an additive bias in R^d, so the attention score between positions m and n is q_m^T k_n = (e_m W_Q)^T (e_n W_K) + cross-terms involving W_pe, which conflates content-content and position-position interactions. Second, it has no length generalization: positions beyond L are out-of-distribution. RoPE (Su et al., 2021) instead applies a rotation R_m ∈ SO(d) to q and k in the attention computation, so the dot product becomes (R_m q_m)^T (R_n k_n) = q_m^T R_{m-n} k_n, which depends only on the relative position m-n. This is a stronger inductive bias: the model is forced to encode position-invariant content similarity. Mathematically, RoPE embeds R into the torus T^{d/2} via m ↦ (e^{imθ_1}, ..., e^{imθ_{d/2}}), with θ_j = 10000^{-2j/d}. The attention kernel becomes a function of relative position through the phase difference, which is a harmonic decomposition analogous to Fourier features. The codebase already has a complete RotaryEmbedding implementation with the half-rotation trick. Since the training context is 1024 tokens and n_positions=1024, length generalization is not immediately relevant, but the cleaner inductive bias on relative position should improve sample efficiency.",
-      "implementation_hint": "Set config.use_rope = True. When use_rope=True, the model skips learned position embeddings (wpe) and applies RotaryEmbedding in the Attention.forward() after projecting q,k and before computing attention weights. The existing implementation uses the half-dim rotation variant from EleutherAI. Verify that wpe parameters are frozen or not allocated when use_rope=True (currently they are allocated but not used when use_rope=True, which wastes ~0.4M parameters). Consider also enabling use_qk_norm=True alongside RoPE to prevent attention logit growth, which is a known issue when combining RoPE with standard attention scaling.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "medium"
-    },
-    {
-      "source": "numerical-debugger",
-      "title": "Parallel Block Output Variance Scaling",
-      "rationale": "The ParallelTransformerBlock sums attention and MLP outputs directly without scaling: `x + attn_out + mlp_out`. For n_layer=12, the residual stream variance grows as Var(x) + Var(attn_out) + Var(mlp_out) per layer, compounded additively. Without scaling, the variance after L layers is approximately Var(x_0) + L * (Var(attn_out) + Var(mlp_out)). With L=12 and typical attn_out/MLP residual variance in the range 0.01-0.05 each, the final variance can be 2-3x the initial variance, shifting the ln_f input distribution. PaLM addresses this by scaling each parallel branch output by 1/sqrt(2). This is a pure numerical fix: the Branch-Train-Merge paper and PaLM both show that 1/sqrt(2) scaling maintains unit variance in the residual stream, which directly improves gradient flow and stabilizes training. The fix requires adding a single scaling factor (a fixed scalar) in the forward pass of ParallelTransformerBlock, with no new dependencies.",
-      "implementation_hint": "In model.py, ParallelTransformerBlock.forward, line 263, change `return x + attn_out + mlp_out` to `return x + (attn_out + mlp_out) * (1.0 / math.sqrt(2.0))`. Alternatively, add a learnable nn.Parameter(torch.ones(1) * 0.7071) as a per-block scale factor initialized to 1/sqrt(2). For ablation purity, the fixed scalar is preferred. No other code changes needed.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "source": "numerical-debugger",
-      "title": "Selective Weight Decay: Exclude Bias and LayerNorm Parameters",
-      "rationale": "The optimizer (`AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), weight_decay=0.1)`) applies weight_decay=0.1 to ALL parameters, including biases in Linear layers and LayerNorm weight/bias. This is a known implementation pitfall: decaying the LayerNorm gamma (scale) parameter directly interferes with its normalization function by pulling it toward 0, forcing the running statistics to compensate. Decaying bias parameters is also harmful because biases are translation-only parameters with no meaningful L2 regularization benefit. The standard GPT-2 reference (HuggingFace transformers, nanoGPT) constructs separate parameter groups: one with weight_decay for all weight matrices except LayerNorm weights, and one with weight_decay=0 for biases and all LayerNorm parameters. For a 12-layer model with ~85M params, about ~1.5M parameters (biases ~800k + LN weights/bias ~600k) are incorrectly regularized. Fixing this provides a free improvement in optimization quality without changing the architecture.",
-      "implementation_hint": "In train.py, after creating the model, construct parameter groups: `decay_params = [p for n, p in model.named_parameters() if p.dim() >= 2 and not any(nd in n for nd in ['ln_', 'ln_f', 'norm'])]; no_decay_params = [p for n, p in model.named_parameters() if p.dim() < 2 or any(nd in n for nd in ['ln_', 'ln_f', 'norm', 'bias'])]; optimizer = AdamW([{'params': decay_params, 'weight_decay': 0.1}, {'params': no_decay_params, 'weight_decay': 0.0}], lr=3e-4, betas=(0.9, 0.95))`. No new dependencies needed.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "source": "numerical-debugger",
-      "title": "LR Schedule Simplification for Short Training Horizon",
-      "rationale": "The current cosine decay schedule decays from max_lr=3e-4 to min_lr=1e-5 over 100 steps, with only 10 warmup steps. The model reaches 0.5 * (max_lr + min_lr) = 1.55e-4 at step ~55 and decays below 8e-5 by step 75. At 100 steps total, the model is barely past the initial transient -- GPT-2 scale convergence on WikiText-2 typically requires 500-2000+ steps for the validation perplexity to plateau. The aggressive cosine decay means the LR is below the effective AdamW range for nearly half the training window. A constant LR of 3e-4 (with linear warmup for the first 10 steps) would maintain larger effective gradient steps throughout, producing faster convergence. Expected improvement: the final val_loss should be ~0.1-0.3 lower simply from maintaining effective gradient step sizes through the training window. This change requires only a modification to the get_lr function in train.py.",
-      "implementation_hint": "In train.py, replace the cosine decay in get_lr() with a constant schedule: `if it < warmup_iters: return max_lr * (it + 1) / warmup_iters; else: return max_lr`. Alternatively, for a milder decay, set min_lr=1e-4 instead of 1e-5. Or add a `--lr-schedule` argparse argument with choices ['cosine', 'constant'] and select the schedule at runtime. No new dependencies.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "medium"
-    },
-    {
-      "source": "flow-arch-reviewer",
-      "title": "Shared-norm parallel block (PaLM canonical form)",
-      "rationale": "The current ParallelTransformerBlock uses separate ln_1 and ln_2: x_normed = ln_1(x); attn(x_normed); mlp(ln_2(x_normed)). This is NOT the PaLM architecture. PaLM uses a single shared LayerNorm for both branches: x_normed = LN(x); attn(x_normed); mlp(x_normed). The separate ln_2 re-normalizes the MLP input, creating a divergent gradient path where the MLP gradient flows through ln_2's Jacobian while the attention gradient flows through ln_1's -- the two branches are optimized on differently-scaled gradient landscapes. The extra norm also adds a redundant degree of freedom given ln_f at the output. The canonical PaLM form (shared norm, parallel branches, final ln_f) has been validated at massive scale (540B params) and is the architecture behind Gemini. Importantly, this direction subsumes numerical-debugger's 'Parallel Block Output Variance Scaling' direction: with a single shared norm, both branches start from the same unit-variance representation, and the 1/sqrt(2) scaling becomes the natural consequence of summing two zero-mean contributions with matched variance. If this direction is selected, the variance scaling fix should be integrated here rather than applied separately. This direction also relates to math-theorist's Pre-LayerNorm direction: the shared-norm parallel block IS a Pre-LN architecture (the residual stream is never normalized inside the block), so selecting this direction partially addresses the Pre-LN gradient flow concern as well.",
-      "implementation_hint": "Modify ParallelTransformerBlock.__init__ to remove ln_2 entirely. Change forward to: x_normed = self.ln_1(x); return x + self.attn(x_normed) + self.mlp(x_normed). Set use_parallel_block=True. Optionally combine with the 1/sqrt(2) scaling: return x + (self.attn(x_normed) + self.mlp(x_normed)) / math.sqrt(2.0). This is a minimal code change (3 lines) in model.py only.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "medium"
-    },
-    {
-      "source": "flow-arch-reviewer",
-      "title": "Hybrid sequential-parallel architecture with alternating block types",
-      "rationale": "Pure parallel blocks sacrifice intra-block expressiveness (MLP cannot condition on attention output) for propagation speed. Pure sequential blocks have the opposite trade-off. A hybrid architecture alternates: odd layers use sequential TransformerBlock (MLP sees attention output), even layers use ParallelTransformerBlock (fast propagation). This creates a 'breathing' pattern: odd layers refine representations with full sequential expressiveness, even layers propagate information quickly. The effective sequential depth becomes 1.5*n_layer instead of n_layer (parallel) or 2*n_layer (sequential). The architectural hypothesis is that not all layers need the same compute structure -- early layers that extract local patterns benefit from sequential attention-then-MLP, while later layers that integrate global context benefit from parallel processing. This is analogous to how ResNet alternates bottleneck and non-bottleneck blocks. The risk is that the alternating pattern may introduce optimization difficulty if the two block types have different gradient characteristics, but since both block types are already implemented and tested in the codebase, the implementation risk is contained.",
-      "implementation_hint": "Modify GPT2Model.__init__ to use a mixed block list: for i in range(n_layer): block = TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config). This requires either a new config flag (use_hybrid_blocks) or modifying the block construction logic directly. The simplest implementation is: blocks = [TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config) for i in range(config.n_layer)] and self.h = nn.ModuleList(blocks). No other files need changes.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "high"
-    }
-  ],
-  "deduplicated_directions": [
-    {
-      "title": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-      "merged_from": [
-        "math-theorist: Pre-LayerNorm for gradient flow stabilization",
-        "flow-arch-reviewer: Shared-norm parallel block (PaLM canonical form)",
-        "numerical-debugger: Parallel Block Output Variance Scaling"
-      ],
-      "rationale": "Three candidates converge on the same root cause: the current ParallelTransformerBlock deviates from the canonical PaLM architecture by using separate ln_1/ln_2 norms, creating divergent gradient paths and uncontrolled residual stream variance. (1) math-theorist showed that Pre-LN guarantees a monotone gradient lower bound through identity skip connections. (2) flow-arch-reviewer identified that the shared-norm parallel block IS a Pre-LN architecture (the residual stream is never normalized inside the block), and that removing ln_2 makes both branches start from the same unit-variance representation. (3) numerical-debugger showed that the 1/sqrt(2) scaling for attn+mlp sums is the natural consequence of that shared-norm design: two zero-mean contributions with matched variance sum to sqrt(2) variance, so dividing by sqrt(2) restores unit variance. These three fixes are not independent -- they are three facets of one architectural correction. Merging them avoids redundant changes and ensures the variant is tested as a coherent PaLM-compliant block.",
-      "implementation_hint": "In model.py ParallelTransformerBlock: remove ln_2; change forward to x_normed = self.ln_1(x); return x + (self.attn(x_normed) + self.mlp(x_normed)) / math.sqrt(2.0). This is a 3-line change. Set use_parallel_block=True. The final ln_f remains unchanged.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "title": "SwiGLU gated activation for MLP expressivity",
-      "merged_from": [
-        "math-theorist: SwiGLU gated activation for MLP expressivity"
-      ],
-      "rationale": "Standalone candidate with no overlap from other agents. SwiGLU replaces pointwise GELU with a bilinear gating mechanism (SiLU gate multiplied elementwise with value projection), creating a strictly richer function class. The gate implements conditional computation paths based on input content rather than a fixed nonlinearity. Already implemented in the codebase via use_swiglu flag with matched parameter count (~4.72M vs ~4.72M for GELU MLP). Shazeer (2020) and Touvron et al. (2023) provide consistent empirical evidence of improvement at matched parameter counts.",
-      "implementation_hint": "Set config.use_swiglu = True. No code changes needed -- the flag already exists. The MLP class implements SwiGLU with n_inner = (8/3) * n_embd. Note: SwiGLU replaces GELU entirely, so coordinate with any other activation-modifying directions.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "title": "Rotary position embeddings for relative position encoding",
-      "merged_from": [
-        "math-theorist: Rotary position embeddings for relative position encoding"
-      ],
-      "rationale": "Standalone candidate with no overlap from other agents. RoPE replaces learned absolute position embeddings with SO(d) rotations applied to q and k, making attention scores depend only on relative position m-n via phase differences. This is a cleaner inductive bias: the attention kernel becomes a harmonic decomposition analogous to Fourier features, eliminating the conflation of content-content and position-position interactions inherent in additive absolute embeddings. Length generalization is not immediately relevant at n_positions=1024, but the relative position bias should improve sample efficiency. Already implemented in the codebase via use_rope flag. Expected risk is medium because RoPE interacts with attention scaling and may require QK-norm pairing to prevent logit growth.",
-      "implementation_hint": "Set config.use_rope = True. When enabled, the model skips learned position embeddings (wpe) and applies RotaryEmbedding in Attention.forward(). Consider enabling use_qk_norm=True alongside RoPE to prevent attention logit growth. Verify that wpe parameters are not allocated when use_rope=True (currently they are allocated but unused, wasting ~0.4M parameters).",
-      "historical_overlap_risk": "low",
-      "expected_risk": "medium"
-    },
-    {
-      "title": "Training hygiene fixes: selective weight decay and LR schedule",
-      "merged_from": [
-        "numerical-debugger: Selective Weight Decay: Exclude Bias and LayerNorm Parameters",
-        "numerical-debugger: LR Schedule Simplification for Short Training Horizon"
-      ],
-      "rationale": "Two implementation-level fixes from numerical-debugger that address optimization quality without modifying the architecture. (1) The current AdamW applies weight_decay=0.1 to ALL parameters including biases and LayerNorm weights, which is a known pitfall: decaying LN gamma pulls it toward 0, interfering with normalization. Standard practice (GPT-2, nanoGPT) uses separate parameter groups. (2) The cosine decay schedule over 100 steps drops below the effective AdamW range by step 75, wasting the second half of training. A constant LR with warmup maintains effective gradient steps throughout. These are orthogonal to architecture changes and can be combined with any candidate. They are grouped because both are training-pipeline fixes with zero architectural risk, and applying both provides a cleaner optimization baseline for evaluating architecture variants.",
-      "implementation_hint": "Two changes in train.py: (a) construct decay_params/no_decay_params parameter groups excluding biases and LN params from weight_decay; (b) replace cosine decay in get_lr() with constant LR after warmup. Both changes are 5-10 lines each, no new dependencies. Consider making the LR schedule configurable via argparse for ablation.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "low"
-    },
-    {
-      "title": "Hybrid sequential-parallel architecture with alternating block types",
-      "merged_from": [
-        "flow-arch-reviewer: Hybrid sequential-parallel architecture with alternating block types"
-      ],
-      "rationale": "Standalone architecturally novel candidate with no overlap from other agents. Proposes alternating TransformerBlock (sequential, MLP conditions on attention output, full expressiveness) and ParallelTransformerBlock (parallel, fast propagation) across layers. Effective sequential depth becomes 1.5*n_layer instead of n_layer (parallel) or 2*n_layer (sequential). The hypothesis is that early layers benefit from sequential attention-then-MLP for local pattern extraction, while later layers benefit from parallel processing for global integration. Both block types are already implemented, so implementation risk is contained, but the alternating pattern may introduce optimization difficulty from different gradient characteristics between block types. This is the highest-risk direction but offers a novel architectural trade-off not explored by other candidates.",
-      "implementation_hint": "Modify GPT2Model.__init__ to use mixed block list: blocks = [TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config) for i in range(config.n_layer)]. Requires a new config flag (use_hybrid_blocks) or direct modification of block construction logic. No other files need changes.",
-      "historical_overlap_risk": "low",
-      "expected_risk": "high"
-    }
-  ],
-  "modification_plan": "{\n  \"status\": \"ready_for_implementation\",\n  \"selected_direction\": \"Shared-norm parallel block with Pre-LN residual path and variance scaling\",\n  \"implementation_scope\": [\n    \"Replace sequential TransformerBlock with PaLM-style ParallelTransformerBlock as the default block type\",\n    \"Remove ln_2 from ParallelTransformerBlock to use shared norm\",\n    \"Add 1/sqrt(2) variance scaling to parallel branch outputs\",\n    \"Enable use_parallel_block=True by default\",\n    \"Keep use_pre_ln=False (shared-norm parallel block is implicitly Pre-LN)\"\n  ],\n  \"files_to_modify\": [\n    \"project/nn-architecture/model.py\"\n  ],\n  \"local_validation_commands\": [\n    \"uv run python project/nn-architecture/train.py --exp-name exp_0001_exploration --model gpt2 --dataset wikitext --dataset-config wikitext-2-v1 --output-dir output/runs/exp_0001_exploration --metrics-file runtime/experiments/exp_0001_exploration.metrics.json --train-steps 100 --batch-size 8 --block-size 256 --lr 3e-4 --log-every 10 --use-pre-ln --use-qk-norm --use-rope --use-parallel-block\"\n  ],\n  \"notes\": [\n    \"The ParallelTransformerBlock already exists in model.py but uses separate ln_1/ln_2. Modify it to use shared norm and 1/sqrt(2) scaling.\",\n    \"This is a 3-line code change in model.py ParallelTransformerBlock.forward().\",\n    \"Keep the TransformerBlock unchanged for potential future hybrid experiments.\",\n    \"The training script already supports --use-parallel-block flag, no train.py changes needed.\"\n  ],\n  \"training_entrypoint\": {\n    \"project_dir\": \".\",\n    \"metrics_file\": \"runtime/experiments/exp_0001_exploration.metrics.json\"\n  }\n}",
-  "code_change_summary": "Phase C executed current_iteration.local_validation.commands.",
+  "selected_direction": null,
+  "candidate_directions": [],
+  "deduplicated_directions": [],
+  "modification_plan": null,
+  "code_change_summary": null,
   "agentteam": {
     "b1_candidate_review": {
-      "status": "complete",
+      "status": "not_started",
       "agents": [
         "team-leader",
         "math-theorist",
@@ -142,26 +23,19 @@
           "numerical-debugger",
           "flow-arch-reviewer"
         ],
-        "completed_agents": [
-          "team-leader",
-          "math-theorist",
-          "numerical-debugger",
-          "flow-arch-reviewer"
-        ],
-        "all_agents_completed": true,
-        "team_leader_finalized": true,
-        "team_disbanded": true,
-        "disbanded_at": "2026-06-13T06:15:06.308174+00:00",
-        "notes": [
-          "B1 project-agent team completed, team-leader finalized, and team was disbanded."
-        ]
+        "completed_agents": [],
+        "all_agents_completed": false,
+        "team_leader_finalized": false,
+        "team_disbanded": false,
+        "disbanded_at": null,
+        "notes": []
       },
-      "summary": "B1 project agents generated and stress-tested candidate directions.",
-      "candidate_count": 8,
+      "summary": null,
+      "candidate_count": 0,
       "blocking_issues": []
     },
     "b2_orthogonality_review": {
-      "status": "complete",
+      "status": "not_started",
       "agent": "orthogonal-direction-scout",
       "agents": [
         "team-leader",
@@ -172,31 +46,20 @@
           "team-leader",
           "orthogonal-direction-scout"
         ],
-        "completed_agents": [
-          "team-leader",
-          "orthogonal-direction-scout"
-        ],
-        "all_agents_completed": true,
-        "team_leader_finalized": true,
-        "team_disbanded": true,
-        "disbanded_at": "2026-06-13T06:15:06.308174+00:00",
-        "notes": [
-          "B2 project-agent team completed, team-leader finalized, and team was disbanded."
-        ]
+        "completed_agents": [],
+        "all_agents_completed": false,
+        "team_leader_finalized": false,
+        "team_disbanded": false,
+        "disbanded_at": null,
+        "notes": []
       },
-      "summary": "B2 project agents reviewed candidate orthogonality against runtime history.",
-      "accepted_candidates": [
-        "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-        "SwiGLU gated activation for MLP expressivity",
-        "Rotary position embeddings for relative position encoding",
-        "Training hygiene fixes: selective weight decay and LR schedule",
-        "Hybrid sequential-parallel architecture with alternating block types"
-      ],
+      "summary": null,
+      "accepted_candidates": [],
       "rejected_candidates": [],
       "override_reason": null
     },
     "b3_plan_selection": {
-      "status": "complete",
+      "status": "not_started",
       "agents": [
         "team-leader",
         "math-theorist",
@@ -210,27 +73,20 @@
           "numerical-debugger",
           "flow-arch-reviewer"
         ],
-        "completed_agents": [
-          "team-leader",
-          "math-theorist",
-          "numerical-debugger",
-          "flow-arch-reviewer"
-        ],
-        "all_agents_completed": true,
-        "team_leader_finalized": true,
-        "team_disbanded": true,
-        "disbanded_at": "2026-06-13T06:15:06.308174+00:00",
-        "notes": [
-          "B3 project-agent team completed, team-leader finalized, and team was disbanded."
-        ]
+        "completed_agents": [],
+        "all_agents_completed": false,
+        "team_leader_finalized": false,
+        "team_disbanded": false,
+        "disbanded_at": null,
+        "notes": []
       },
-      "selected_candidate": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-      "summary": "B3 project agents selected one concrete Phase C implementation plan.",
+      "selected_candidate": null,
+      "summary": null,
       "implementation_risks": [],
       "diagnostic_requirements": []
     },
     "f1_evidence_review": {
-      "status": "complete",
+      "status": "not_started",
       "agents": [
         "team-leader",
         "math-theorist",
@@ -244,256 +100,46 @@
           "numerical-debugger",
           "flow-arch-reviewer"
         ],
-        "completed_agents": [
-          "team-leader",
-          "math-theorist",
-          "numerical-debugger",
-          "flow-arch-reviewer"
-        ],
-        "all_agents_completed": true,
-        "team_leader_finalized": true,
-        "team_disbanded": true,
-        "disbanded_at": "2026-06-13T06:48:50.263720+00:00",
-        "notes": [
-          "F1 project-agent team completed, team-leader finalized, and team was disbanded."
-        ]
+        "completed_agents": [],
+        "all_agents_completed": false,
+        "team_leader_finalized": false,
+        "team_disbanded": false,
+        "disbanded_at": null,
+        "notes": []
       },
-      "summary": "The experiment did not test the selected direction (Shared-norm parallel block with Pre-LN residual path and variance scaling). Phase C local validation correctly included --use-parallel-block, --use-pre-ln, --use-qk-norm, --use-rope flags. However, Phase D training used the static entrypoint.yaml template which does NOT inject these architecture flags. The Phase D train_command ran the DEFAULT TransformerBlock (Post-LN, separate ln_1/ln_2, no variance scaling). The reported val_loss=5.97807 is a Post-LN baseline, not a measurement of the ParallelTransformerBlock variant. The code change in model.py is correct but was never exercised during the actual training run. This is a flag propagation failure between the modification plan and the training entrypoint. The selected direction remains untested. All three specialist agents unanimously agree on inconclusive.",
-      "verdict": "inconclusive",
-      "missing_evidence": [
-        "Validated training run with --use-parallel-block flag actually exercising the modified ParallelTransformerBlock"
-      ]
+      "summary": null,
+      "verdict": null,
+      "missing_evidence": []
     }
   },
   "local_validation": {
-    "status": "passed",
-    "commands": [
-      "uv run python project/nn-architecture/train.py --exp-name exp_0001_exploration --model gpt2 --dataset wikitext --dataset-config wikitext-2-v1 --output-dir output/runs/exp_0001_exploration --metrics-file runtime/experiments/exp_0001_exploration.metrics.json --train-steps 100 --batch-size 8 --block-size 256 --lr 3e-4 --log-every 10 --use-pre-ln --use-qk-norm --use-rope --use-parallel-block"
-    ],
-    "passed": true,
-    "notes": [
-      "2026-06-13T06:15:06.308174+00:00: AgentTeam plan applied from runtime/debates/exp_0001_exploration.md",
-      "2026-06-13T06:15:11.960625+00:00: Phase C started. Running current_iteration.local_validation.commands locally.",
-      "2026-06-13T06:17:55.250445+00:00: Phase C started. Running current_iteration.local_validation.commands locally.",
-      "2026-06-13T06:21:40.020440+00:00: Phase C started. Running current_iteration.local_validation.commands locally.",
-      "2026-06-13T06:29:42.623604+00:00: Command passed: uv run python project/nn-architecture/train.py --exp-name exp_0001_exploration --model gpt2 --dataset wikitext --dataset-config wikitext-2-v1 --output-dir output/runs/exp_0001_exploration --metrics-file runtime/experiments/exp_0001_exploration.metrics.json --train-steps 100 --batch-size 8 --block-size 256 --lr 3e-4 --log-every 10 --use-pre-ln --use-qk-norm --use-rope --use-parallel-block"
-    ]
+    "status": "not_started",
+    "commands": [],
+    "passed": false,
+    "notes": []
   },
   "remote_training": {
-    "status": "succeeded",
-    "execution_mode": "local",
+    "status": "not_started",
     "server": null,
-    "remote_dir": ".",
-    "train_command": "uv run python project/nn-architecture/train.py --exp-name exp_0001_exploration --model gpt2 --dataset wikitext --dataset-config wikitext-2-v1 --output-dir output/runs/exp_0001_exploration --metrics-file runtime/experiments/exp_0001_exploration.metrics.json --train-steps 50 --batch-size 8 --block-size 256 --lr 3e-4 --log-every 10",
-    "main_pid": 22631,
-    "cron_id": "autoresearch-monitor:exp_0001_exploration",
-    "monitor_interval_minutes": 10,
-    "log_path": "runtime/logs/exp_0001_exploration.train.log",
-    "metrics_file": "runtime/experiments/exp_0001_exploration.metrics.json",
-    "started_at": "2026-06-13T06:33:15.574196+00:00",
-    "ended_at": "2026-06-13T06:36:57.795156+00:00",
-    "notes": [
-      "Local training was launched in Phase D because workflow.config.json remote_training.enable/enabled is false.",
-      "Phase E must install a cron monitor, check main_pid first, then read metrics only after the process exits."
-    ],
-    "last_checked_at": "2026-06-13T06:36:57.795156+00:00",
-    "cron_cancelled_at": "2026-06-13T06:36:57.795156+00:00",
-    "cron_cancelled": true
+    "remote_dir": null,
+    "train_command": null,
+    "cron_id": null,
+    "log_path": null,
+    "started_at": null,
+    "ended_at": null
   },
   "result": {
-    "status": "succeeded",
-    "best_val_loss": 5.978072947404516,
-    "final_val_loss": 5.978072947404516,
-    "best_epoch": 50,
+    "status": "pending",
+    "best_val_loss": null,
+    "final_val_loss": null,
+    "best_epoch": null,
     "is_new_best": false
   },
   "root_cause_analysis": {
-    "status": "complete",
-    "agent_votes": [
-      {
-        "agent": "math-theorist",
-        "verdict": "inconclusive",
-        "rationale": "The experiment did not test the selected direction. Phase D training ran with the default TransformerBlock (Post-LN) because the --use-parallel-block flag was not passed. The val_loss=5.9781 is a Post-LN baseline, not evidence for or against the Shared-norm parallel block hypothesis. The original hypothesis (Pre-LN gradient flow stability improves training) remains untested."
-      },
-      {
-        "agent": "numerical-debugger",
-        "verdict": "inconclusive",
-        "rationale": "Flag propagation failure detected. Phase C local validation included --use-parallel-block and other architecture flags in its command. Phase D training did not -- the train_command from entrypoint.yaml is static and does not inherit flags from the modification plan. The entrypoint.yaml template at runtime/training/entrypoint.yaml has no mechanism to inject per-experiment architecture flags. val_loss=5.9781 is reasonable for a 50-step Post-LN baseline (train_loss converged from 11.21 to 6.27, val_loss at 5.98 is consistent). The metrics are trustworthy for what was actually trained, but what was trained was not the intended experiment."
-      },
-      {
-        "agent": "flow-arch-reviewer",
-        "verdict": "inconclusive",
-        "rationale": "The experiment is architecturally invalid for evaluating the selected direction. The ParallelTransformerBlock code change was implemented correctly in model.py (shared ln_1, 1/sqrt(2) scaling), but the Phase D training command did not activate it. The default code path (TransformerBlock with Post-LN, separate ln_1/ln_2) was used instead. No architectural conclusion can be drawn from this run. The root cause is an infrastructure gap: the entrypoint.yaml template is static and does not propagate architecture flags from the modification plan to the training command."
-      }
-    ],
-    "verdict": "inconclusive",
-    "summary": "The experiment did not test the selected direction (Shared-norm parallel block with Pre-LN residual path and variance scaling). Phase C local validation correctly included --use-parallel-block, --use-pre-ln, --use-qk-norm, --use-rope flags. However, Phase D training used the static entrypoint.yaml template which does NOT inject these architecture flags. The Phase D train_command ran the DEFAULT TransformerBlock (Post-LN, separate ln_1/ln_2, no variance scaling). The reported val_loss=5.97807 is a Post-LN baseline, not a measurement of the ParallelTransformerBlock variant. The code change in model.py is correct but was never exercised during the actual training run. This is a flag propagation failure between the modification plan and the training entrypoint. The selected direction remains untested. All three specialist agents unanimously agree on inconclusive."
+    "status": "not_started",
+    "agent_votes": [],
+    "verdict": null,
+    "summary": null
   },
-  "updated_at": "2026-06-13T06:48:50.263720+00:00",
-  "selected_direction_detail": {
-    "title": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-    "rationale": "Two of three agent teams (math-theorist and flow-arch-reviewer) converge on this direction as the highest-impact change. It addresses the core gradient flow instability inherent in Post-LN architectures, aligns with the PaLM canonical form validated at 540B scale, and simultaneously resolves three issues: Pre-LN gradient path, shared-norm divergent gradients, and parallel output variance scaling. The numerical-debugger's dissent (favoring training hygiene fixes) is valid but secondary — training improvements benefit any architecture, whereas the architectural correction is a prerequisite for clean evaluation of subsequent modifications.",
-    "expected_val_loss_effect": "Estimated 0.02-0.08 improvement in final val_loss over the GPT-2 Post-LN baseline, primarily through stabilized gradient flow and reduced residual stream variance drift.",
-    "risk": "low",
-    "minority_view": "numerical-debugger recommends Candidate 4 (training hygiene: selective weight decay + constant LR). This is valid but lower priority since architectural stability is a prerequisite for meaningful hyperparameter tuning.",
-    "consensus": "2-of-3 agreement on Candidate 1"
-  },
-  "phase_b_agentteam_output": {
-    "candidate_directions": [
-      {
-        "source": "math-theorist",
-        "title": "Pre-LayerNorm for gradient flow stabilization",
-        "rationale": "Post-LN applies normalization after the residual addition: x = LN(x + F(x)). The gradient of the loss L with respect to the pre-residual stream x_l must propagate through the Jacobian of LN at every layer: ∂L/∂x_l = ∏_{k=l}^{L-1} (∂LN/∂(x+F(x)))_{k} · (I + ∂F/∂x)_{k}. The Jacobian of LayerNorm is (1/σ)(I - (1/d)11^T - (1/d)xx^T/σ^2), whose spectral norm depends on the ratio μ/σ. When layer activations drift (common in deep Post-LN), gradient magnitude fluctuates across layers, causing the optimization landscape to develop sharp directions (Xiong et al., 2020). Pre-LN instead routes: x = x + F(LN(x)), so the residual pathway is always the identity I in the backward pass. This ensures ∂L/∂x_l receives an additive gradient of constant magnitude from every deeper layer, regardless of the sublayer Jacobian. Formally, the gradient flow through the skip connections satisfies ||∂L/∂x_l|| >= ||∂L/∂x_{L-1}|| for all l, which Post-LN cannot guarantee. The 50-step training budget makes stable gradient flow especially critical, since there is no room for the optimizer to recover from early instability.",
-        "implementation_hint": "Set config.use_pre_ln = True in the default GPT2Config. The model already supports this via the TransformerBlock branch: x = x + attn(ln_1(x)); x = x + mlp(ln_2(x)). Verify that the final ln_f is still applied after the last block. Consider also pairing with ln_init_random=False (standard init) since Pre-LN's stability does not depend on symmetry-breaking initialization. No other code changes are needed — the flag already exists.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "source": "math-theorist",
-        "title": "SwiGLU gated activation for MLP expressivity",
-        "rationale": "The current MLP uses a pointwise activation: h = GELU(xW_1)W_2. GELU is a fixed nonlinearity with no data-dependent modulation. SwiGLU replaces this with h = (SiLU(xW_gate) ⊙ xW_value)W_proj, where SiLU(x) = x·σ(x) and ⊙ is elementwise multiplication. This is not merely an activation change — it fundamentally alters the function class. The gating mechanism implements h_j = Σ_k SiLU(Σ_i x_i W^gate_{ik}) · (Σ_i x_i W^value_{ik}) · W^proj_{kj}, which is a rank-decomposed bilinear form in the pre-activation space. By the universal approximation theorem for products of linear functions (Ge et al., 2015), this architecture can represent any polynomial activation with fewer parameters than a deeper MLP with pointwise activations. More concretely, the gating creates a conditional computation path: the gate Σ_i x_i W^gate selects which value dimensions are activated, allowing the network to route information based on the input rather than applying a fixed nonlinearity. Empirically, SwiGLU consistently outperforms GELU in transformer MLPs at matched parameter counts (Shazeer, 2020; Touvron et al., 2023). The implementation already exists in the codebase under the use_swiglu flag.",
-        "implementation_hint": "Set config.use_swiglu = True. The MLP class already implements SwiGLU with n_inner = (8/3) * n_embd, which compensates for the extra gate projection. The model uses c_fc1 (gate projection), c_fc2 (value projection), and c_proj (output projection). Total parameter count increases slightly: the MLP goes from 2*(768*3072) + 768 + 3072 = 4,722,432 to 3*(768*2048) + 768 + 2048 = 4,721,664 (approximately matched). No code changes needed beyond flipping the flag. Note: SwiGLU replaces GELU entirely, so if other directions also modify the activation, this must be coordinated.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "source": "math-theorist",
-        "title": "Rotary position embeddings for relative position encoding",
-        "rationale": "The current model uses learned absolute position embeddings W_pe ∈ R^{L×d}, added to token embeddings. This has two mathematical weaknesses. First, it encodes position as an additive bias in R^d, so the attention score between positions m and n is q_m^T k_n = (e_m W_Q)^T (e_n W_K) + cross-terms involving W_pe, which conflates content-content and position-position interactions. Second, it has no length generalization: positions beyond L are out-of-distribution. RoPE (Su et al., 2021) instead applies a rotation R_m ∈ SO(d) to q and k in the attention computation, so the dot product becomes (R_m q_m)^T (R_n k_n) = q_m^T R_{m-n} k_n, which depends only on the relative position m-n. This is a stronger inductive bias: the model is forced to encode position-invariant content similarity. Mathematically, RoPE embeds R into the torus T^{d/2} via m ↦ (e^{imθ_1}, ..., e^{imθ_{d/2}}), with θ_j = 10000^{-2j/d}. The attention kernel becomes a function of relative position through the phase difference, which is a harmonic decomposition analogous to Fourier features. The codebase already has a complete RotaryEmbedding implementation with the half-rotation trick. Since the training context is 1024 tokens and n_positions=1024, length generalization is not immediately relevant, but the cleaner inductive bias on relative position should improve sample efficiency.",
-        "implementation_hint": "Set config.use_rope = True. When use_rope=True, the model skips learned position embeddings (wpe) and applies RotaryEmbedding in the Attention.forward() after projecting q,k and before computing attention weights. The existing implementation uses the half-dim rotation variant from EleutherAI. Verify that wpe parameters are frozen or not allocated when use_rope=True (currently they are allocated but not used when use_rope=True, which wastes ~0.4M parameters). Consider also enabling use_qk_norm=True alongside RoPE to prevent attention logit growth, which is a known issue when combining RoPE with standard attention scaling.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "medium"
-      },
-      {
-        "source": "numerical-debugger",
-        "title": "Parallel Block Output Variance Scaling",
-        "rationale": "The ParallelTransformerBlock sums attention and MLP outputs directly without scaling: `x + attn_out + mlp_out`. For n_layer=12, the residual stream variance grows as Var(x) + Var(attn_out) + Var(mlp_out) per layer, compounded additively. Without scaling, the variance after L layers is approximately Var(x_0) + L * (Var(attn_out) + Var(mlp_out)). With L=12 and typical attn_out/MLP residual variance in the range 0.01-0.05 each, the final variance can be 2-3x the initial variance, shifting the ln_f input distribution. PaLM addresses this by scaling each parallel branch output by 1/sqrt(2). This is a pure numerical fix: the Branch-Train-Merge paper and PaLM both show that 1/sqrt(2) scaling maintains unit variance in the residual stream, which directly improves gradient flow and stabilizes training. The fix requires adding a single scaling factor (a fixed scalar) in the forward pass of ParallelTransformerBlock, with no new dependencies.",
-        "implementation_hint": "In model.py, ParallelTransformerBlock.forward, line 263, change `return x + attn_out + mlp_out` to `return x + (attn_out + mlp_out) * (1.0 / math.sqrt(2.0))`. Alternatively, add a learnable nn.Parameter(torch.ones(1) * 0.7071) as a per-block scale factor initialized to 1/sqrt(2). For ablation purity, the fixed scalar is preferred. No other code changes needed.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "source": "numerical-debugger",
-        "title": "Selective Weight Decay: Exclude Bias and LayerNorm Parameters",
-        "rationale": "The optimizer (`AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), weight_decay=0.1)`) applies weight_decay=0.1 to ALL parameters, including biases in Linear layers and LayerNorm weight/bias. This is a known implementation pitfall: decaying the LayerNorm gamma (scale) parameter directly interferes with its normalization function by pulling it toward 0, forcing the running statistics to compensate. Decaying bias parameters is also harmful because biases are translation-only parameters with no meaningful L2 regularization benefit. The standard GPT-2 reference (HuggingFace transformers, nanoGPT) constructs separate parameter groups: one with weight_decay for all weight matrices except LayerNorm weights, and one with weight_decay=0 for biases and all LayerNorm parameters. For a 12-layer model with ~85M params, about ~1.5M parameters (biases ~800k + LN weights/bias ~600k) are incorrectly regularized. Fixing this provides a free improvement in optimization quality without changing the architecture.",
-        "implementation_hint": "In train.py, after creating the model, construct parameter groups: `decay_params = [p for n, p in model.named_parameters() if p.dim() >= 2 and not any(nd in n for nd in ['ln_', 'ln_f', 'norm'])]; no_decay_params = [p for n, p in model.named_parameters() if p.dim() < 2 or any(nd in n for nd in ['ln_', 'ln_f', 'norm', 'bias'])]; optimizer = AdamW([{'params': decay_params, 'weight_decay': 0.1}, {'params': no_decay_params, 'weight_decay': 0.0}], lr=3e-4, betas=(0.9, 0.95))`. No new dependencies needed.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "source": "numerical-debugger",
-        "title": "LR Schedule Simplification for Short Training Horizon",
-        "rationale": "The current cosine decay schedule decays from max_lr=3e-4 to min_lr=1e-5 over 100 steps, with only 10 warmup steps. The model reaches 0.5 * (max_lr + min_lr) = 1.55e-4 at step ~55 and decays below 8e-5 by step 75. At 100 steps total, the model is barely past the initial transient -- GPT-2 scale convergence on WikiText-2 typically requires 500-2000+ steps for the validation perplexity to plateau. The aggressive cosine decay means the LR is below the effective AdamW range for nearly half the training window. A constant LR of 3e-4 (with linear warmup for the first 10 steps) would maintain larger effective gradient steps throughout, producing faster convergence. Expected improvement: the final val_loss should be ~0.1-0.3 lower simply from maintaining effective gradient step sizes through the training window. This change requires only a modification to the get_lr function in train.py.",
-        "implementation_hint": "In train.py, replace the cosine decay in get_lr() with a constant schedule: `if it < warmup_iters: return max_lr * (it + 1) / warmup_iters; else: return max_lr`. Alternatively, for a milder decay, set min_lr=1e-4 instead of 1e-5. Or add a `--lr-schedule` argparse argument with choices ['cosine', 'constant'] and select the schedule at runtime. No new dependencies.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "medium"
-      },
-      {
-        "source": "flow-arch-reviewer",
-        "title": "Shared-norm parallel block (PaLM canonical form)",
-        "rationale": "The current ParallelTransformerBlock uses separate ln_1 and ln_2: x_normed = ln_1(x); attn(x_normed); mlp(ln_2(x_normed)). This is NOT the PaLM architecture. PaLM uses a single shared LayerNorm for both branches: x_normed = LN(x); attn(x_normed); mlp(x_normed). The separate ln_2 re-normalizes the MLP input, creating a divergent gradient path where the MLP gradient flows through ln_2's Jacobian while the attention gradient flows through ln_1's -- the two branches are optimized on differently-scaled gradient landscapes. The extra norm also adds a redundant degree of freedom given ln_f at the output. The canonical PaLM form (shared norm, parallel branches, final ln_f) has been validated at massive scale (540B params) and is the architecture behind Gemini. Importantly, this direction subsumes numerical-debugger's 'Parallel Block Output Variance Scaling' direction: with a single shared norm, both branches start from the same unit-variance representation, and the 1/sqrt(2) scaling becomes the natural consequence of summing two zero-mean contributions with matched variance. If this direction is selected, the variance scaling fix should be integrated here rather than applied separately. This direction also relates to math-theorist's Pre-LayerNorm direction: the shared-norm parallel block IS a Pre-LN architecture (the residual stream is never normalized inside the block), so selecting this direction partially addresses the Pre-LN gradient flow concern as well.",
-        "implementation_hint": "Modify ParallelTransformerBlock.__init__ to remove ln_2 entirely. Change forward to: x_normed = self.ln_1(x); return x + self.attn(x_normed) + self.mlp(x_normed). Set use_parallel_block=True. Optionally combine with the 1/sqrt(2) scaling: return x + (self.attn(x_normed) + self.mlp(x_normed)) / math.sqrt(2.0). This is a minimal code change (3 lines) in model.py only.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "medium"
-      },
-      {
-        "source": "flow-arch-reviewer",
-        "title": "Hybrid sequential-parallel architecture with alternating block types",
-        "rationale": "Pure parallel blocks sacrifice intra-block expressiveness (MLP cannot condition on attention output) for propagation speed. Pure sequential blocks have the opposite trade-off. A hybrid architecture alternates: odd layers use sequential TransformerBlock (MLP sees attention output), even layers use ParallelTransformerBlock (fast propagation). This creates a 'breathing' pattern: odd layers refine representations with full sequential expressiveness, even layers propagate information quickly. The effective sequential depth becomes 1.5*n_layer instead of n_layer (parallel) or 2*n_layer (sequential). The architectural hypothesis is that not all layers need the same compute structure -- early layers that extract local patterns benefit from sequential attention-then-MLP, while later layers that integrate global context benefit from parallel processing. This is analogous to how ResNet alternates bottleneck and non-bottleneck blocks. The risk is that the alternating pattern may introduce optimization difficulty if the two block types have different gradient characteristics, but since both block types are already implemented and tested in the codebase, the implementation risk is contained.",
-        "implementation_hint": "Modify GPT2Model.__init__ to use a mixed block list: for i in range(n_layer): block = TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config). This requires either a new config flag (use_hybrid_blocks) or modifying the block construction logic directly. The simplest implementation is: blocks = [TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config) for i in range(config.n_layer)] and self.h = nn.ModuleList(blocks). No other files need changes.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "high"
-      }
-    ],
-    "deduplicated_directions": [
-      {
-        "title": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-        "merged_from": [
-          "math-theorist: Pre-LayerNorm for gradient flow stabilization",
-          "flow-arch-reviewer: Shared-norm parallel block (PaLM canonical form)",
-          "numerical-debugger: Parallel Block Output Variance Scaling"
-        ],
-        "rationale": "Three candidates converge on the same root cause: the current ParallelTransformerBlock deviates from the canonical PaLM architecture by using separate ln_1/ln_2 norms, creating divergent gradient paths and uncontrolled residual stream variance. (1) math-theorist showed that Pre-LN guarantees a monotone gradient lower bound through identity skip connections. (2) flow-arch-reviewer identified that the shared-norm parallel block IS a Pre-LN architecture (the residual stream is never normalized inside the block), and that removing ln_2 makes both branches start from the same unit-variance representation. (3) numerical-debugger showed that the 1/sqrt(2) scaling for attn+mlp sums is the natural consequence of that shared-norm design: two zero-mean contributions with matched variance sum to sqrt(2) variance, so dividing by sqrt(2) restores unit variance. These three fixes are not independent -- they are three facets of one architectural correction. Merging them avoids redundant changes and ensures the variant is tested as a coherent PaLM-compliant block.",
-        "implementation_hint": "In model.py ParallelTransformerBlock: remove ln_2; change forward to x_normed = self.ln_1(x); return x + (self.attn(x_normed) + self.mlp(x_normed)) / math.sqrt(2.0). This is a 3-line change. Set use_parallel_block=True. The final ln_f remains unchanged.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "title": "SwiGLU gated activation for MLP expressivity",
-        "merged_from": [
-          "math-theorist: SwiGLU gated activation for MLP expressivity"
-        ],
-        "rationale": "Standalone candidate with no overlap from other agents. SwiGLU replaces pointwise GELU with a bilinear gating mechanism (SiLU gate multiplied elementwise with value projection), creating a strictly richer function class. The gate implements conditional computation paths based on input content rather than a fixed nonlinearity. Already implemented in the codebase via use_swiglu flag with matched parameter count (~4.72M vs ~4.72M for GELU MLP). Shazeer (2020) and Touvron et al. (2023) provide consistent empirical evidence of improvement at matched parameter counts.",
-        "implementation_hint": "Set config.use_swiglu = True. No code changes needed -- the flag already exists. The MLP class implements SwiGLU with n_inner = (8/3) * n_embd. Note: SwiGLU replaces GELU entirely, so coordinate with any other activation-modifying directions.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "title": "Rotary position embeddings for relative position encoding",
-        "merged_from": [
-          "math-theorist: Rotary position embeddings for relative position encoding"
-        ],
-        "rationale": "Standalone candidate with no overlap from other agents. RoPE replaces learned absolute position embeddings with SO(d) rotations applied to q and k, making attention scores depend only on relative position m-n via phase differences. This is a cleaner inductive bias: the attention kernel becomes a harmonic decomposition analogous to Fourier features, eliminating the conflation of content-content and position-position interactions inherent in additive absolute embeddings. Length generalization is not immediately relevant at n_positions=1024, but the relative position bias should improve sample efficiency. Already implemented in the codebase via use_rope flag. Expected risk is medium because RoPE interacts with attention scaling and may require QK-norm pairing to prevent logit growth.",
-        "implementation_hint": "Set config.use_rope = True. When enabled, the model skips learned position embeddings (wpe) and applies RotaryEmbedding in Attention.forward(). Consider enabling use_qk_norm=True alongside RoPE to prevent attention logit growth. Verify that wpe parameters are not allocated when use_rope=True (currently they are allocated but unused, wasting ~0.4M parameters).",
-        "historical_overlap_risk": "low",
-        "expected_risk": "medium"
-      },
-      {
-        "title": "Training hygiene fixes: selective weight decay and LR schedule",
-        "merged_from": [
-          "numerical-debugger: Selective Weight Decay: Exclude Bias and LayerNorm Parameters",
-          "numerical-debugger: LR Schedule Simplification for Short Training Horizon"
-        ],
-        "rationale": "Two implementation-level fixes from numerical-debugger that address optimization quality without modifying the architecture. (1) The current AdamW applies weight_decay=0.1 to ALL parameters including biases and LayerNorm weights, which is a known pitfall: decaying LN gamma pulls it toward 0, interfering with normalization. Standard practice (GPT-2, nanoGPT) uses separate parameter groups. (2) The cosine decay schedule over 100 steps drops below the effective AdamW range by step 75, wasting the second half of training. A constant LR with warmup maintains effective gradient steps throughout. These are orthogonal to architecture changes and can be combined with any candidate. They are grouped because both are training-pipeline fixes with zero architectural risk, and applying both provides a cleaner optimization baseline for evaluating architecture variants.",
-        "implementation_hint": "Two changes in train.py: (a) construct decay_params/no_decay_params parameter groups excluding biases and LN params from weight_decay; (b) replace cosine decay in get_lr() with constant LR after warmup. Both changes are 5-10 lines each, no new dependencies. Consider making the LR schedule configurable via argparse for ablation.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "low"
-      },
-      {
-        "title": "Hybrid sequential-parallel architecture with alternating block types",
-        "merged_from": [
-          "flow-arch-reviewer: Hybrid sequential-parallel architecture with alternating block types"
-        ],
-        "rationale": "Standalone architecturally novel candidate with no overlap from other agents. Proposes alternating TransformerBlock (sequential, MLP conditions on attention output, full expressiveness) and ParallelTransformerBlock (parallel, fast propagation) across layers. Effective sequential depth becomes 1.5*n_layer instead of n_layer (parallel) or 2*n_layer (sequential). The hypothesis is that early layers benefit from sequential attention-then-MLP for local pattern extraction, while later layers benefit from parallel processing for global integration. Both block types are already implemented, so implementation risk is contained, but the alternating pattern may introduce optimization difficulty from different gradient characteristics between block types. This is the highest-risk direction but offers a novel architectural trade-off not explored by other candidates.",
-        "implementation_hint": "Modify GPT2Model.__init__ to use mixed block list: blocks = [TransformerBlock(config) if i % 2 == 0 else ParallelTransformerBlock(config) for i in range(config.n_layer)]. Requires a new config flag (use_hybrid_blocks) or direct modification of block construction logic. No other files need changes.",
-        "historical_overlap_risk": "low",
-        "expected_risk": "high"
-      }
-    ],
-    "selected_direction": {
-      "title": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-      "rationale": "Two of three agent teams (math-theorist and flow-arch-reviewer) converge on this direction as the highest-impact change. It addresses the core gradient flow instability inherent in Post-LN architectures, aligns with the PaLM canonical form validated at 540B scale, and simultaneously resolves three issues: Pre-LN gradient path, shared-norm divergent gradients, and parallel output variance scaling. The numerical-debugger's dissent (favoring training hygiene fixes) is valid but secondary — training improvements benefit any architecture, whereas the architectural correction is a prerequisite for clean evaluation of subsequent modifications.",
-      "expected_val_loss_effect": "Estimated 0.02-0.08 improvement in final val_loss over the GPT-2 Post-LN baseline, primarily through stabilized gradient flow and reduced residual stream variance drift.",
-      "risk": "low",
-      "minority_view": "numerical-debugger recommends Candidate 4 (training hygiene: selective weight decay + constant LR). This is valid but lower priority since architectural stability is a prerequisite for meaningful hyperparameter tuning.",
-      "consensus": "2-of-3 agreement on Candidate 1"
-    },
-    "modification_plan": {
-      "status": "ready_for_implementation",
-      "selected_direction": "Shared-norm parallel block with Pre-LN residual path and variance scaling",
-      "implementation_scope": [
-        "Replace sequential TransformerBlock with PaLM-style ParallelTransformerBlock as the default block type",
-        "Remove ln_2 from ParallelTransformerBlock to use shared norm",
-        "Add 1/sqrt(2) variance scaling to parallel branch outputs",
-        "Enable use_parallel_block=True by default",
-        "Keep use_pre_ln=False (shared-norm parallel block is implicitly Pre-LN)"
-      ],
-      "files_to_modify": [
-        "project/nn-architecture/model.py"
-      ],
-      "local_validation_commands": [
-        "uv run python project/nn-architecture/train.py --exp-name exp_0001_exploration --model gpt2 --dataset wikitext --dataset-config wikitext-2-v1 --output-dir output/runs/exp_0001_exploration --metrics-file runtime/experiments/exp_0001_exploration.metrics.json --train-steps 100 --batch-size 8 --block-size 256 --lr 3e-4 --log-every 10 --use-pre-ln --use-qk-norm --use-rope --use-parallel-block"
-      ],
-      "notes": [
-        "The ParallelTransformerBlock already exists in model.py but uses separate ln_1/ln_2. Modify it to use shared norm and 1/sqrt(2) scaling.",
-        "This is a 3-line code change in model.py ParallelTransformerBlock.forward().",
-        "Keep the TransformerBlock unchanged for potential future hybrid experiments.",
-        "The training script already supports --use-parallel-block flag, no train.py changes needed."
-      ],
-      "training_entrypoint": {
-        "project_dir": ".",
-        "metrics_file": "runtime/experiments/exp_0001_exploration.metrics.json"
-      }
-    }
-  }
+  "updated_at": "2026-06-13T14:28:28.016945+00:00"
 }

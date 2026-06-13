@@ -113,3 +113,6 @@ runtime/**/*.pth
 runtime/**/*.ckpt
 runtime/**/*.safetensors
 runtime/**/*.bin
+
+
+note.txt

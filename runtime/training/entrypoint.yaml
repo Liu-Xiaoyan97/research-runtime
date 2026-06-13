@@ -22,7 +22,10 @@ local:
     --batch-size 8
     --block-size 256
     --lr 3e-4
+    --use-output-gate
     --log-every 10
+    --use-rope
+    --use-qk-norm
 
   metrics_file: runtime/experiments/{exp_name}.metrics.json
 

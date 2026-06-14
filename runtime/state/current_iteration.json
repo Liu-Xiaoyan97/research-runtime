@@ -26,9 +26,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "notes": [],
         "nested_subagent_architecture": true,
-        "finalized_at": null
+        "finalized_at": null,
+        "notes": []
       },
       "summary": null,
       "candidate_count": 0,
@@ -49,9 +49,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "notes": [],
         "nested_subagent_architecture": true,
-        "finalized_at": null
+        "finalized_at": null,
+        "notes": []
       },
       "summary": null,
       "accepted_candidates": [],
@@ -76,9 +76,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "notes": [],
         "nested_subagent_architecture": true,
-        "finalized_at": null
+        "finalized_at": null,
+        "notes": []
       },
       "selected_candidate": null,
       "summary": null,
@@ -103,9 +103,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "notes": [],
         "nested_subagent_architecture": true,
-        "finalized_at": null
+        "finalized_at": null,
+        "notes": []
       },
       "summary": null,
       "verdict": null,

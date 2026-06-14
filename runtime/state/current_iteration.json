@@ -1,7 +1,7 @@
 {
-  "exp_name": "exp_0001_exploration",
-  "iteration": 1,
-  "objective_summary": "Explore neural network architecture variants that reduce validation loss\ncompared with the current baseline while keeping implementation complexity\nand compute cost under control.\n",
+  "exp_name": null,
+  "iteration": 0,
+  "objective_summary": null,
   "selected_direction": null,
   "candidate_directions": [],
   "deduplicated_directions": [],
@@ -26,9 +26,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "team_disbanded": false,
-        "disbanded_at": null,
-        "notes": []
+        "notes": [],
+        "nested_subagent_architecture": true,
+        "finalized_at": null
       },
       "summary": null,
       "candidate_count": 0,
@@ -49,9 +49,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "team_disbanded": false,
-        "disbanded_at": null,
-        "notes": []
+        "notes": [],
+        "nested_subagent_architecture": true,
+        "finalized_at": null
       },
       "summary": null,
       "accepted_candidates": [],
@@ -76,9 +76,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "team_disbanded": false,
-        "disbanded_at": null,
-        "notes": []
+        "notes": [],
+        "nested_subagent_architecture": true,
+        "finalized_at": null
       },
       "selected_candidate": null,
       "summary": null,
@@ -103,9 +103,9 @@
         "completed_agents": [],
         "all_agents_completed": false,
         "team_leader_finalized": false,
-        "team_disbanded": false,
-        "disbanded_at": null,
-        "notes": []
+        "notes": [],
+        "nested_subagent_architecture": true,
+        "finalized_at": null
       },
       "summary": null,
       "verdict": null,
@@ -141,5 +141,5 @@
     "verdict": null,
     "summary": null
   },
-  "updated_at": "2026-06-13T14:28:28.016945+00:00"
+  "updated_at": null
 }

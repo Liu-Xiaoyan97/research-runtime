@@ -1,4 +1,0 @@
-[submodule "workflow/oh-my-autoresearch"]
-	path = workflow/oh-my-autoresearch
-	url = https://github.com/Liu-Xiaoyan97/oh-my-autoresearch.git
-	ignore = all

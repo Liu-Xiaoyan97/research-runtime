@@ -1,0 +1,3 @@
+[submodule "agent-system/oh-my-autoresearch"]
+	path = agent-system/oh-my-autoresearch
+	url = https://github.com/Liu-Xiaoyan97/oh-my-autoresearch.git

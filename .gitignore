@@ -1,0 +1,6 @@
+.claude/
+.venv/
+project/
+runtime/
+objective.json
+uv.lock

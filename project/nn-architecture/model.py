@@ -1,5 +1,5 @@
 """
-GPT-2 baseline model (Post-LayerNorm).
+GPT-2 model with Pre-LayerNorm (default).
 
 Architecture matches GPT-2 small:
   - vocab_size = 50257
@@ -7,7 +7,8 @@ Architecture matches GPT-2 small:
   - n_head = 12
   - n_layer = 12
   - n_positions = 1024
-  - activation = GELU (post-LN)
+  - activation = SwiGLU (pre-LN)
+  - Pre-LayerNorm enabled by default (use_pre_ln=True)
 """
 from __future__ import annotations
 
@@ -36,13 +37,13 @@ class GPT2Config:
         layer_norm_epsilon: float = 1e-5,
         initializer_range: float = 0.02,
         use_qk_norm: bool = False,
-        use_pre_ln: bool = False,
+        use_pre_ln: bool = True,
         use_rope: bool = False,
-        use_swiglu: bool = False,
+        use_swiglu: bool = True,
         use_parallel_block: bool = True,
         ln_init_random: bool = False,
         use_output_gate: bool = False,
-        use_embed_norm: bool = False,
+        use_embed_norm: bool = True,
     ):
         self.vocab_size = vocab_size
         self.n_positions = n_positions
@@ -423,6 +424,7 @@ class GPT2Model(nn.Module):
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1),
+                label_smoothing=0.1,
             )
 
         return {"loss": loss, "logits": logits}

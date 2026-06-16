@@ -16,6 +16,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+try:
+    from torch.optim import RAdam
+except ImportError:
+    RAdam = torch.optim.AdamW
+    print("Warning: RAdam not available, falling back to AdamW", file=sys.stderr)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from data import create_dataloaders  # noqa: E402
@@ -59,14 +65,18 @@ def main() -> int:
     parser.add_argument("--use-pre-ln", action="store_true")
     parser.add_argument("--use-qk-norm", action="store_true")
     parser.add_argument("--use-rope", action="store_true")
-    parser.add_argument("--use-swiglu", action="store_true")
+    parser.add_argument("--no-swiglu", action="store_false", dest="use_swiglu",
+                        help="Disable SwiGLU (use GELU instead)")
     parser.add_argument("--use-parallel-block", action="store_true")
     parser.add_argument("--ln-init-random", action="store_true",
                         help="Initialize LayerNorm weight with small random noise (mean=1.0, std=0.02)")
     parser.add_argument("--use-output-gate", action="store_true",
                         help="Enable learnable residual output gating (FINAL-001)")
-    parser.add_argument("--use-embed-norm", action="store_true",
-                        help="Enable embedding LayerNorm stabilization after embedding sum and before dropout")
+    embed_norm_group = parser.add_mutually_exclusive_group()
+    embed_norm_group.add_argument("--use-embed-norm", action="store_true", dest="use_embed_norm", default=True,
+                        help="Enable embedding LayerNorm stabilization (default: True for exp_3)")
+    embed_norm_group.add_argument("--no-embed-norm", action="store_false", dest="use_embed_norm",
+                        help="Disable embedding LayerNorm stabilization")
     # Diagnostic flags
     parser.add_argument("--log-activations", action="store_true",
                         help="Log activation statistics for MLP layers")
@@ -76,13 +86,20 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--block-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--min-lr", type=float, default=1e-5)
+    parser.add_argument("--min-lr", type=float, default=1e-4)
     parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--train-steps", type=int, default=50,
                         help="Number of training steps (default: 50)")
+    parser.add_argument("--num_training_steps", type=int, default=None,
+                        help="Number of training steps (alias for --train-steps, used by launch script)")
+    parser.add_argument("--eval_n_steps", type=int, default=None,
+                        help="Evaluate on validation set every N training steps (default: disabled, only final eval)")
     args = parser.parse_args()
+    # Apply --num_training_steps override if provided
+    if args.num_training_steps is not None:
+        args.train_steps = args.num_training_steps
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -136,7 +153,18 @@ def main() -> int:
     if args.log_grad_norms:
         model.log_grad_norms = True
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.1)
+    # Decoupled weight decay: exclude bias, LayerNorm, and other 1D params
+    decay_params = []
+    no_decay_params = []
+    for name, p in model.named_parameters():
+        if p.ndim < 2 or "bias" in name or "norm" in name or "tau" in name or "gate" in name:
+            no_decay_params.append(p)
+        else:
+            decay_params.append(p)
+    optimizer = RAdam([
+        {"params": decay_params, "weight_decay": 0.1},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ], lr=args.lr, betas=(0.9, 0.95))
 
     train_iter = iter(train_loader)
     best_val_loss = float("inf")
@@ -187,7 +215,7 @@ def main() -> int:
         if step < args.warmup_steps:
             clip_val = 5.0
         else:
-            clip_val = max(1.0, grad_norm_ema * 2.0)
+            clip_val = min(5.0, max(1.0, grad_norm_ema * 2.0))
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip_val)
         optimizer.step()
@@ -203,10 +231,19 @@ def main() -> int:
             from model import log_gate_values
             log_gate_values(model, step, log_interval=args.log_every)
 
+        # Periodic evaluation if eval_n_steps is set
+        if args.eval_n_steps is not None and (step + 1) % args.eval_n_steps == 0:
+            val_loss = evaluate(model, val_loader, device)
+            print(f"  Eval at step {step+1}: val_loss={val_loss:.4f}")
+            val_curve.append({"step": step + 1, "val_loss": val_loss})
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+
     # Final evaluation
     print("Running final evaluation...")
     final_val_loss = evaluate(model, val_loader, device)
-    best_val_loss = final_val_loss  # only one eval for 50-step runs
+    if final_val_loss < best_val_loss:
+        best_val_loss = final_val_loss
     best_epoch = args.train_steps
     val_curve.append({"step": args.train_steps, "val_loss": final_val_loss})
     print(f"Final val_loss: {final_val_loss:.4f}")

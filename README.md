@@ -90,7 +90,7 @@ research-runtime/
 
 ```bash
 # 1. 克隆宿主仓库（含子模块）
-git clone --recurse-submodules https://github.com/<your>/research-runtime.git
+git clone --recurse-submodules https://github.com/Liu-Xiaoyan97/research-runtime.git
 cd research-runtime
 
 # 2. 从子模块安装框架（.claude/ 和 runtime/）

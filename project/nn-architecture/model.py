@@ -424,7 +424,7 @@ class GPT2Model(nn.Module):
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1),
-                label_smoothing=0.1,
+                label_smoothing=0.0,
             )
 
         return {"loss": loss, "logits": logits}

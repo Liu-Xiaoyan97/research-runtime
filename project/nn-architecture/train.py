@@ -81,9 +81,9 @@ def main() -> int:
     # Training hyperparams
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--block-size", type=int, default=256)
-    parser.add_argument("--lr", type=float, default=3.5e-4)
+    parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--min-lr", type=float, default=1e-4)
-    parser.add_argument("--warmup-steps", type=int, default=15)
+    parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--train-steps", type=int, default=50,
@@ -160,7 +160,7 @@ def main() -> int:
     optimizer = AdamW([
         {"params": decay_params, "weight_decay": 0.1},
         {"params": no_decay_params, "weight_decay": 0.0},
-    ], lr=args.lr, betas=(0.9, 0.98))
+    ], lr=args.lr, betas=(0.9, 0.95))
 
     train_iter = iter(train_loader)
     best_val_loss = float("inf")

@@ -16,11 +16,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-try:
-    from torch.optim import RAdam
-except ImportError:
-    RAdam = torch.optim.AdamW
-    print("Warning: RAdam not available, falling back to AdamW", file=sys.stderr)
+from torch.optim import AdamW
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -85,9 +81,9 @@ def main() -> int:
     # Training hyperparams
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--block-size", type=int, default=256)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=3.5e-4)
     parser.add_argument("--min-lr", type=float, default=1e-4)
-    parser.add_argument("--warmup-steps", type=int, default=10)
+    parser.add_argument("--warmup-steps", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--train-steps", type=int, default=50,
@@ -161,10 +157,10 @@ def main() -> int:
             no_decay_params.append(p)
         else:
             decay_params.append(p)
-    optimizer = RAdam([
+    optimizer = AdamW([
         {"params": decay_params, "weight_decay": 0.1},
         {"params": no_decay_params, "weight_decay": 0.0},
-    ], lr=args.lr, betas=(0.9, 0.95))
+    ], lr=args.lr, betas=(0.9, 0.98))
 
     train_iter = iter(train_loader)
     best_val_loss = float("inf")

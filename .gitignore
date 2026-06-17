@@ -6,3 +6,12 @@ objective.json
 uv.lock
 output/
 agent-system/oh-my-autoresearch/.DS_Store
+
+# 禁止 subagent 在根目录生成中间文件
+# 所有 subagent 结果必须通过 Agent 返回值传递，不得写入磁盘
+tmp_*.json
+commit_result*.json
+decision_output*.json
+orthogonal_set_output*.json
+recovery-*.json
+recovery_summary*.json

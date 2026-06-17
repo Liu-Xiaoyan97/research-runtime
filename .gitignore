@@ -5,4 +5,4 @@ runtime/
 objective.json
 uv.lock
 output/
-agent-system/oh-my-autoresearch/
+agent-system/oh-my-autoresearch/.DS_Store

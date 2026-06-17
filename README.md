@@ -58,16 +58,20 @@ research-runtime/
 │  │  │AR │ MT │ ND│ │ │ │ AR │MT │ND││ │          │  │
 │  │  └────┴────┴──┘ │ │ └────┴───┴──┘│ └──────────┘  │
 │  └─────────────────┘ └───────────────┘              │
-│           │ observer event (唯一持久化出口)            │
+│           │ emit_event.py (唯一持久化出口)              │
 │           ▼                                          │
 │  ┌───────────────────────────────────────────────┐  │
-│  │            Observer Sidecar (Python)            │  │
-│  │  events.jsonl → dispatch → writers             │  │
-│  │  ├─ write_state.py     → states.json           │  │
-│  │  ├─ write_log.py       → observations/*.log    │  │
-│  │  ├─ write_exploration.py → SQLite / JSON       │  │
-│  │  ├─ write_experiments.py  → SQLite             │  │
-│  │  └─ write_knowledge.py    → knowledges/*.json  │  │
+│  │          Observer Sidecar (Python daemon)       │  │
+│  │  events.jsonl → offset consume → dispatch      │  │
+│  │    ├─ write_state.py        → states.json       │  │
+│  │    ├─ write_log.py          → observations/*    │  │
+│  │    ├─ write_exploration.py  → SQLite            │  │
+│  │    ├─ write_experiments.py  → SQLite            │  │
+│  │    ├─ write_knowledge.py    → knowledges/*      │  │
+│  │    ├─ 失败 → deadletter.jsonl                   │  │
+│  │    └─ state=9 触发 → LLM observation 生成      │  │
+│  │         (独立 api/key/model)                    │  │
+│  │       └─ 存 observations/ + 回灌 knowledges     │  │
 │  └───────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 ```
@@ -77,6 +81,7 @@ research-runtime/
 - **team-lead 无写权**：所有持久化通过 observer event 完成，team-lead 只发事件，由 observer sidecar 落盘
 - **两级 subagent 架构**：一级（scout/summarizer/coder）串行、二级（reviewer）并行
 - **N 选 1 决策管线**：scout 找多个正交候选 → 三个 reviewer 各自评分 → summarizer 票选最高 → coder 实施
+- **文件优先**：所有 writer 优先从权威文件读取上下文参数（exp_name 从 states.json、指标列名从 objective.json），payload 只作兜底
 
 ## 安装
 
@@ -422,11 +427,52 @@ step   20/200 | loss 5.8765 | lr 3.00e-04 | 1.1s
 
 ### Observer Sidecar
 
-observer 是随 Claude Code session 启动/停止的 Python 守护进程。它：
+observer 是随 Claude Code session 启动/停止的 Python 守护进程（`observer_daemon.py`）。
+它是**完全自治的独立观察者**，**不是 subagent**——team-lead 不能调用 observer 的任何
+生命周期脚本或内部函数，只能通过 `emit_event.py` 发射事件来间接驱动它（fire-and-forget）。
 
-- 轮询 `runtime/observer/events/events.jsonl`
-- 根据事件类型调用对应的 writer（写 states.json / SQLite / knowledge JSON / observation log）
-- 处理失败时写入 deadletter，不阻塞主流程
+#### 事件流
+
+```
+emit_event.py → events.jsonl → offset-based consume → dispatch → writer → 持久化
+                                                         失败 → deadletter.jsonl
+                                  state=9 → 触发 LLM observation 生成 → observations/ + knowledges
+                                  control=reset → 自清 events/offsets/run
+```
+
+#### 5 种事件类型
+
+| event_type | Writer | 写入目标 | 说明 |
+|-----------|--------|---------|------|
+| `state` | `write_state.py` | `states.json` | 推进状态机检查点，**唯一必须由 payload 给定全部字段的事件** |
+| `log` | `write_log.py` | `observations/*.log` | 记录运行日志 |
+| `experiments` | `write_experiments.py` | SQLite `experiments` 表 | 训练实验指标（建行 / 更新指标 / 标记完成） |
+| `exploration` | `write_exploration.py` | SQLite `exploration` 表 | 正交候选集 / 决策 / 提交记录 |
+| `knowledge` | `write_knowledge.py` | `knowledges/baseline.json` / `learned.json` / `rejected.json` | 经验知识库写入 |
+| `control` | 自治处理（不进 writer） | 自清 | `action=reset` 清空 events/offsets/run |
+
+#### 关键设计
+
+- **文件优先**（`file-first`）：所有 writer 优先从权威文件读取上下文参数（如 `exp_name`
+  从 `states.json` 获取，指标列名从 `objective.json` 推导），payload 只作为数据本体
+  （log 文本、指标值、候选集内容等）。**唯一例外是 `state` 事件**——它自身就是
+  `states.json` 的写入者，payload 是状态转移信号。
+
+- **决策名称自动解析**：`write_exploration.py` 写入 `decision` 列时，自动将
+  `candidate_N` 解析为对应的候选方法名（从同实验的 `orthogonal-direction-scout` JSON
+  中提取 `name` 字段）。
+
+- **自动指标发射**：`monitor_training.py` 在每次 cron 轮询时，自动检测未写入的 eval
+  检查点，主动发射 `experiments update_metric` 事件。team-lead 无需手动发射指标事件。
+
+- **一轮收尾自治观察**：`state` 事件 `current_step=9` 触发时，observer daemon 自动
+  调用 `generate_observation.py`（使用**独立 LLM 配置** `llm.config.json`），汇总
+  本轮数据生成自然语言 observation，存到 `observations/`（SQLite + JSONL），并将
+  INSIGHT 回灌到 `knowledges/learned.json`（带 `[observer]` 标记）。整个过程
+  best-effort，任何失败被吞掉，不阻塞 offset 推进。
+
+- **健康状态**：observer daemon 每轮写入 `observer/run/observer.status`（含 PID、
+  offset、LLM 启用状态、最后轮询时间），供 `/loop-status` 只读查看。
 
 **team-lead 没有直接写权限**，所有持久化通过 `emit_event.py` 走 observer 完成。
 
@@ -498,7 +544,10 @@ ruff check .
 
 ## 注意事项
 
-- **写权限约束**：team-lead 不能直接 Write/Edit 文件，所有持久化走 observer event
+- **写权限约束**：team-lead 不能直接 Write/Edit 文件，所有持久化通过 observer event 完成。
+  参数采用文件优先原则——writer 从 states.json/objective.json 读取上下文，payload 只作数据本体。
+- **observer 独立自治**：observer 是独立守护进程，不是 subagent。team-lead 不得调用 observer 的
+  生命周期脚本或内部函数，只能通过 `emit_event.py` 发射 5 种事件类型（state/log/experiments/exploration/knowledge）驱动。
 - **训练监控**：使用 Claude Code 内部 `CronCreate` 轮询训练进度，禁止前台 sleep 阻塞
 - **脚本约束**：训练必须通过 `generate_launch.sh` → `start_training.sh` → `monitor_training.py` 驱动
 - **subagent 约束**：只能使用 `.claude/agents/` 注册的 6 种 subagent，严禁降级到通用 agent

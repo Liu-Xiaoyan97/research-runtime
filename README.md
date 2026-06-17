@@ -328,26 +328,61 @@ metrics = {
 ## 日志格式要求
 
 `monitor_training.py` 和 `parse_train_log.py` 通过正则表达式从训练日志中提取进度。
-日志文本可以是自由格式的，但**需要解析的指标行**必须满足以下模式。
+日志文本**不限制格式**——只要是文本即可。但有两类信息需要被解析器识别：
 
-### 正则规则
+### 1. 训练进度行（任意格式，只要含 step 和 loss 关键词）
 
-```
-step N / total     ← 匹配 "step" + 数字，更新 train_step
-train_loss = X     ← 匹配 "loss" + 浮点数（loss=, loss: 均可），更新 train_loss
-val_X = Y          ← 匹配 "val_" 开头的任何指标 + 浮点数，如 val_loss=3.45
-val_step N         ← 可选，匹配 "val_step" + 数字，更新 val_step
-```
-
-### 实际例子
-
-以下日志行都能被正确解析（来自 `train.py` 的输出）：
+训练脚本在每步训练时打印的进度行，只要同时包含 `step` + 数字 和 `loss` + 数字，
+解析器就能提取 `train_step` 和 `train_loss`：
 
 ```
-step    0/200 | loss 9.2156 | lr 3.00e-04 | 1.2s        → train_step=0, train_loss=9.2156
-  Eval at step 10: val_loss=4.0123                       → val_loss=4.0123
-  Attn entropy | mean=6.3812 min=0.0015 max=10.2345      → 无（不匹配上述 regex，仅人类可读）
-Gradient norm (pre-clip): 12.3456                         → 无（同上）
+step   10/200 | loss 5.8000 | lr 3.00e-04 | 2.1s     → train_step=10, train_loss=5.8000
+train_step=20 train_loss=5.6000                        → train_step=20, train_loss=5.6000
+```
+
+无 `step`/`loss` 关键词的行完全被忽略，不影响解析结果。
+
+### 2. 验证评估行（**唯一硬性格式要求**）
+
+验证评估结果**必须**在同一行内同时输出步号和指标值，且格式必须为：
+
+```
+Eval at step {step}: {primary_metrics.name}={value}
+```
+
+其中 `{primary_metrics.name}` 来自 `objective.json` 的 `primary_metrics.name` 字段。
+
+例如 `objective.json` 中：
+```json
+{"primary_metrics": {"name": "val_loss", "mode": "minimization"}}
+```
+
+则训练日志验证行必须为：
+```
+  Eval at step 50: val_loss=5.8021       → val_step=50, val_metric=5.8021
+  Eval at step 100: val_loss=5.5056      → val_step=100, val_metric=5.5056
+  Eval at step 150: val_loss=5.3701      → val_step=150, val_metric=5.3701
+  Eval at step 200: val_loss=5.3146      → val_step=200, val_metric=5.3146
+```
+
+**只匹配这一种格式**——步号和指标值必须出现在同一行，且必须严格包含 `Eval at step` 和 `{primary_metrics.name}=`。如果验证行不符合此格式，解析器不会提取该次评估结果，对应的指标不会被写入 `experiments` 表。
+
+#### 为什么这么设计
+
+- parser 不再用通用 `key=value` 正则全量扫描每行再按 key 名配对
+- 改用 `_build_eval_re(primary_metric)` 构建单一正则，**一步捕获**步号和指标值
+- 消除两个正则独立匹配的配对歧义
+- 训练脚本改动极低：只需要在打印验证行时使用 `Eval at step {step}: {primary_metrics.name}={value}` 格式
+
+### 示例：完整的日志文件
+
+```
+step    0/200 | loss 9.2156 | lr 3.00e-04 | 1.2s
+step   10/200 | loss 6.0123 | lr 3.00e-04 | 1.1s
+  Eval at step 10: val_loss=5.8021
+step   20/200 | loss 5.8765 | lr 3.00e-04 | 1.1s
+...
+  Eval at step 200: val_loss=5.3146
 ```
 
 ### `loss_exploded` 检测
@@ -355,18 +390,6 @@ Gradient norm (pre-clip): 12.3456                         → 无（同上）
 `parse_train_log.py` 会自动检测 loss 发散。以下情况将标记 `loss_exploded=true`：
 - 最新 loss > 1e6
 - 最近 3 个 loss 连续上升且最新值 > 前 3 个的 10 倍
-
-### 命名建议
-
-为了被 `monitor_training.py` 正确处理，推荐：
-
-- 训练 loss 用 `loss` 或 `train_loss`
-- 验证指标用 `val_<metric_name>`，如 `val_loss`、`val_accuracy`、`val_ppl`
-- `objective.json` 中的 `primary_metrics.name` 应去掉 `val_` 前缀（框架会自动拼接）：
-  ```json
-  { "name": "loss", "mode": "minimization" }
-  ```
-  这样日志中 `val_loss=3.45` 会被识别为主要指标。
 
 ### 完整解析输出
 
@@ -376,8 +399,8 @@ Gradient norm (pre-clip): 12.3456                         → 无（同上）
 {
   "train_step": 200,
   "train_loss": 2.3456,
-  "val_loss": 3.1234,
-  "val_metric": 3.1234,
+  "val_step": 200,
+  "val_metric": 5.3146,
   "loss_exploded": false
 }
 ```

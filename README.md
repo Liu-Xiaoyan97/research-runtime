@@ -412,6 +412,40 @@ step   20/200 | loss 5.8765 | lr 3.00e-04 | 1.1s
 
 这个 JSON 会被 cron 轮询任务读取，用于判断训练是否结束、是否需要进入 Phase 9 经验回收。
 
+## 实时数据库仪表盘
+
+`runtime/scripts/observe_db.py` 提供一个终端内实时刷新的 SQLite 仪表盘，用于
+直观观察 observer 写入的实验数据和探索记录：
+
+```bash
+cd runtime          # 进入 runtime 目录
+python3 scripts/observe_db.py              # 默认模式
+python3 scripts/observe_db.py --details    # 显示完整 JSON（含 description）
+```
+
+### 布局
+
+```
+┌───────────────────────────────────┐
+│  📊 experiments        (高度 30%) │
+│  行数据，show_lines=True 横线分隔  │
+├───────────────────────────────────┤
+│  🔍 exploration        (高度 70%) │
+│  orthogonal-direction-scout 列    │
+│  默认只显示 name，--details 显示   │
+│  完整 JSON（含 description）       │
+├───────────────────────────────────┤
+│  状态栏（1 行高度）                │
+│  最后刷新时间 / 行数 / --details 提示 │
+└───────────────────────────────────┘
+```
+
+- **experiments**：显示实验名和各 eval 检查点的指标列（列数自动适配 `objective.json`
+  的 `num_training_steps` / `eval_n_steps`）
+- **exploration**：显示 `orthogonal-direction-scout`（候选集）、`decision`（票选结果，
+  已自动解析为候选方法名而非 `candidate_N`）、`commit`（提交记录）
+- 每 2 秒自动刷新，`Ctrl+C` 退出
+
 ## 关键概念
 
 ### Subagent 体系

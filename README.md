@@ -210,7 +210,7 @@ Claude Code 启动时会自动：
 | 6 | 远程同步 | 代码上传远端（可选） | 同步完成 |
 | 7 | 训练启动 | generate_launch → start_training → CronCreate 轮询 | 训练进程 PID |
 | 8 | 训练结束 | CronDelete 销 cron，解析日志 | 训练指标 |
-| 9 | 经验回收 | reviewer analysis → 分类 learned/rejected/baseline | knowledge 更新 |
+| 9 | 经验回收 | emit 最终实验数据 → reviewer analysis → 分类 learned/rejected/baseline | knowledge 更新 |
 
 每一轮完成后自动进入下一轮（`iteration + 1`），形成持续优化循环。
 
@@ -472,6 +472,19 @@ python3 scripts/observe_db.py --details    # 显示完整 JSON（含 description
 | `flow-arch-reviewer` | 二级（并行） | 架构 / 数据流角度评审 | — |
 | `math-theorist` | 二级（并行） | 数学 / 优化理论角度评审 | — |
 | `numerical-debugger` | 二级（并行） | 数值稳定性 / 梯度诊断 | — |
+
+### Reviewer 去重与心跳监督
+
+`orthogonal-direction-scout` 和 `summarizer` 必须把三类 reviewer 作为后台 Agent
+同时启动。`.claude/scripts/subagent_supervisor.py` 通过 hooks 对
+“父 agent + reviewer 类型”执行原子 claim，因此同一个父 agent 无法重复创建同类
+reviewer，即使多个 Agent 调用并发到达也只会放行一个。
+
+一级 agent 保存每个后台 Agent 返回的 `agentId`，再调用 supervisor 的 `wait` 命令。
+supervisor 综合 Agent 生命周期 hook 与后台 `output_file` 修改时间判断活动状态；
+默认连续 300 秒无活动即标记为 `stale`。失败或超时后必须先 `TaskStop` 原 Agent，
+再显式执行 `retry`，且只允许对应角色单独重试一次。禁止整批补拉，也禁止创建
+`general-purpose` “等待 agent”查询旧任务。
 
 ### Observer Sidecar
 

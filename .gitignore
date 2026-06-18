@@ -16,3 +16,4 @@ orthogonal_set_output*.json
 recovery-*.json
 recovery_summary*.json
 .DS_Store
+.codegraph/

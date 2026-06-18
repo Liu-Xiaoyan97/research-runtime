@@ -115,13 +115,13 @@ python3 -c "import jsonschema; print('OK')"
 claude .
 ```
 
-### 配置研究目标
+### 配置 research objective
 
-编辑 `runtime/states/objective.json`（或直接编辑根目录 `objective.json` 符号链接）：
+编辑 `runtime/states/objective.json`（或根目录 `objective.json` 符号链接）：
 
 ```json
 {
-  "goal": "降低模型的val_loss",
+  "goal": "降低模型的val_loss，每次val_loss的改善至少0.1，否则该方法将被reject。",
   "primary_metrics": {
     "name": "val_loss",
     "mode": "minimization"
@@ -129,16 +129,30 @@ claude .
   "project_root": "project/nn-architecture",
   "command": "train.py",
   "remote": false,
+  "hosts": [],
   "num_training_steps": 200,
-  "eval_n_steps": 50
+  "eval_n_steps": 50,
+  "devices": ["cuda:0"],
+  "poll_interval": 2,
+  "model": {
+    "default": "claude-deepseek-4-flash",
+    "coder": "claude-kimi-coding",
+    "flow-arch-reviewer": "claude-kimi-coding"
+  }
 }
 ```
 
-- `project_root`：被优化的神经网络项目路径
-- `command`：训练入口脚本（如 `train.py`）
-- `num_training_steps` / `eval_n_steps`：训练步数和评估间隔
-- `remote`：是否通过 SSH 在远程机器训练
-- `hosts`：远程主机列表（仅 remote=true 时需要）
+| 字段 | 说明 |
+|------|------|
+| `goal` | 实验目标，如内含改进阈值（"至少0.1"）会被 Phase 9 自动解析 |
+| `primary_metrics` | 主指标名称和优化方向（minimization / maximization） |
+| `project_root` | 被优化的神经网络项目路径 |
+| `command` | 训练入口脚本（如 `train.py`） |
+| `remote` / `hosts` | 远程训练开关和 SSH 主机列表 |
+| `num_training_steps` / `eval_n_steps` | 训练步数和评估间隔 |
+| `devices` | 训练设备列表（cuda:n / mps） |
+| `poll_interval` | 训练轮询间隔（分钟），session-start 时注入 CronCreate |
+| `model` | dict，每个 subagent 使用的模型标识；`default` 做兜底 |
 
 ## 在 Claude Code 中启动
 
@@ -151,7 +165,7 @@ claude .
 ```
 
 Claude Code 启动时会自动：
-1. 运行 `session-start.sh` hook，启动 **observer sidecar**（事件驱动持久化守护进程）
+1. 运行 `session-start.sh` hook：先执行 `resolve_templates.sh` 从 `objective.json` 填充 `{{goal}}`/`{{poll_interval}}`/`{{model.*}}` 占位符，然后启动 **observer sidecar**（事件驱动持久化守护进程）
 2. 加载 `.claude/CLAUDE.md` 中的 team-lead 指令
 3. 注册所有 slash 命令和 subagent
 
@@ -187,15 +201,15 @@ Claude Code 启动时会自动：
 
 | Step | Phase | 说明 | 产出 |
 |------|-------|------|------|
-| 0 | 校验 | 运行 validate_runtime、check_clean | 校验通过报告 |
+| 0 | 校验 | 运行 validate_runtime（含 schema 校验、远程连接检查） | 校验通过报告 |
 | 1 | 历史载入 | 读取 baseline / learned / rejected | 经验上下文 |
-| 2 | → 1 | （过渡状态） | — |
+| 2 | 历史就绪 | 经验已注入上下文，准备方向探索 | — |
 | 3 | 方向探索 | scout + 3 个 reviewer 并行 | 正交候选集 |
 | 4 | 票选决策 | summarizer + 3 个 reviewer 并行评分 | 最高票方法 |
-| 5 | 代码变更 | coder 实施、冒烟测试、git 提交 | commit result |
-| 6 | 远程同步 | SSH 同步代码（可选） | 同步完成 |
-| 7 | 训练启动 | generate → start → CronCreate 轮询 | 训练进程 PID |
-| 8 | 训练结束 | CronDelete 销掉 cron，解析日志 | 训练指标 |
+| 5 | 代码变更 | coder 实施、冒烟测试、git 提交（含 baseline 回退） | commit result |
+| 6 | 远程同步 | 代码上传远端（可选） | 同步完成 |
+| 7 | 训练启动 | generate_launch → start_training → CronCreate 轮询 | 训练进程 PID |
+| 8 | 训练结束 | CronDelete 销 cron，解析日志 | 训练指标 |
 | 9 | 经验回收 | reviewer analysis → 分类 learned/rejected/baseline | knowledge 更新 |
 
 每一轮完成后自动进入下一轮（`iteration + 1`），形成持续优化循环。
@@ -508,7 +522,8 @@ emit_event.py → events.jsonl → offset-based consume → dispatch → writer 
 - **健康状态**：observer daemon 每轮写入 `observer/run/observer.status`（含 PID、
   offset、LLM 启用状态、最后轮询时间），供 `/loop-status` 只读查看。
 
-**team-lead 没有直接写权限**，所有持久化通过 `emit_event.py` 走 observer 完成。
+- **事件自动发射**：`exploration` 与 `candidate_pool` 事件由 `validate_subagent_result.py`
+  在校验 subagent 返回 JSON 时自动发射，team-lead 无需手动调用 `emit_event.py`。
 
 ### Git Submodule：框架源码
 
@@ -520,13 +535,14 @@ git submodule update --init --recursive
 为 Git submodule。它包含：
 
 - `runtime.template/` — `runtime/` 运行时引擎的模板文件
-- `.claude.template/` — `.claude/` 配置的模板文件
+- `.claude.template/` — `.claude/` 配置的模板文件（含 `{{var}}` 占位符）
 - `install.sh` — 将上述模板复制到宿主仓库的安装脚本
 - `doctor.sh` — 环境诊断脚本
 - `tests/` — 框架测试
 
 **`runtime/` 和 `.claude/` 由 `install.sh` 从子模块安装**，不是宿主仓库自身维护的源码。
-当你拉取子模块更新后，需要重新运行 `install.sh` 来同步最新更改（不会覆盖已存在的文件）。
+`{{}}` 占位符由 session-start hook 调用的 `resolve_templates.sh` 从 `objective.json` 填充。
+当你拉取子模块更新后，需重新运行 `install.sh` 同步最新更改（历史数据不被覆盖）。
 
 ### Subagent 模型切换
 
@@ -568,11 +584,10 @@ ruff check .
 
 ## 注意事项
 
-- **写权限约束**：team-lead 不能直接 Write/Edit 文件，所有持久化通过 observer event 完成。
-  参数采用文件优先原则——writer 从 states.json/objective.json 读取上下文，payload 只作数据本体。
-- **observer 独立自治**：observer 是独立守护进程，不是 subagent。team-lead 不得调用 observer 的
-  生命周期脚本或内部函数，只能通过 `emit_event.py` 发射 5 种事件类型（state/log/experiments/exploration/knowledge）驱动。
-- **训练监控**：使用 Claude Code 内部 `CronCreate` 轮询训练进度，禁止前台 sleep 阻塞
+- **写权限约束**：team-lead 不能直接 Write/Edit 文件，所有持久化通过 observer event 完成
+- **PreToolUse 守卫**：pre-tool-use.sh 设有 8 道守卫拦截违规操作（直接写 states.json、调 observer 脚本、未注册 subagent、直接写非 project/ 路径、仓库内创建文件等）
+- **模板系统**：CLAUDE.md 和 agent .md 中的 `{{goal}}`/`{{poll_interval}}`/`{{model.*}}` 占位符由 session-start hook 的 `resolve_templates.sh` 从 `objective.json` 自动填充
+- **训练监控**：使用 Claude Code 内部 `CronCreate` 轮询，禁止前台 sleep 阻塞
 - **脚本约束**：训练必须通过 `generate_launch.sh` → `start_training.sh` → `monitor_training.py` 驱动
 - **subagent 约束**：只能使用 `.claude/agents/` 注册的 6 种 subagent，严禁降级到通用 agent
-- **远程训练**：通过 `runtime/scripts/utils/ssh_chain.py` 支持 SSH 链式跳板机连接
+- **远程训练**：通过 `ssh_chain.py` 支持 SSH 链式跳板机连接

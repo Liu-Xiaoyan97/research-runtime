@@ -530,38 +530,28 @@ git submodule update --init --recursive
 
 ### Subagent 模型切换
 
-安装后，框架默认使用 `claude-deepseek-4-flash` 驱动各 subagent。
-你可以为每个 subagent 单独指定不同的模型，只需修改 `.claude/agents/` 下对应 agent 文件的
-`model` 字段为 `claude code` CLI 中可使用的任意模型标识。例如：
+各 subagent 使用的模型在 `runtime/states/objective.json` 的 `model` 字段中统一管理。
+session-start 时由模板系统自动注入到 `.claude/agents/*.md` 的 `model:` 字段。
 
-```yaml
----
-name: "orthogonal-direction-scout"
-model: claude-sonnet-4-6        # ← 修改此行
+```json
+{
+  "model": {
+    "default": "haiku",
+    "orthogonal-direction-scout": "claude-sense-ds-4-flash",
+    "summarizer": "claude-sense-ds-4-flash",
+    "coder": "claude-kimi-coding",
+    "flow-arch-reviewer": "claude-kimi-coding",
+    "math-theorist": "claude-deepseek-4-flash",
+    "numerical-debugger": "claude-deepseek-4-flash"
+  }
+}
 ```
 
-目前注册的 6 个 subagent 文件及其默认模型：
-
-| Agent 文件 | 默认模型 | 适用范围 |
-|-----------|---------|---------|
-| `.claude/agents/coder.md` | `claude-deepseek-4-flash` | 代码修改（叶子，无嵌套） |
-| `.claude/agents/orthogonal-direction-scout.md` | `claude-deepseek-4-flash` | 方向探索（嵌套 3 个 reviewer） |
-| `.claude/agents/summarizer.md` | `claude-deepseek-4-flash` | 票选汇总（嵌套 3 个 reviewer） |
-| `.claude/agents/flow-arch-reviewer.md` | `claude-deepseek-4-flash` | 架构评审（二级 reviewer） |
-| `.claude/agents/math-theorist.md` | `claude-deepseek-4-flash` | 数学理论评审（二级 reviewer） |
-| `.claude/agents/numerical-debugger.md` | `claude-deepseek-4-flash` | 数值诊断评审（二级 reviewer） |
-
-可用模型标识示例：
-
-- `claude-sonnet-4-6` — 最新 Sonnet，平衡速度与质量
-- `claude-haiku-4-5-20251001` — 最快、最经济的选项
-- `claude-opus-4-8` — 最强的推理能力，适合 reviewer 角色
-- `claude-deepseek-4-flash` — 默认值，快速且性能优秀
-
-**注意：**
-- 模型切换只影响 **`mcp__Task__spawn` 调用的子 agent**，不影响 Claude Code 主对话（team-lead）使用的模型——主对话模型由 `claude` CLI 的 `--model` 参数或 settings.json 中的 `"model"` 设定确定
-- 如果切换后模型不可用，`Task` 调用会报错，这时改回已知可用的模型即可
-- `agent-system/oh-my-autoresearch/` 是 Git submodule，**不要直接在宿主的 `.claude/agents/` 上改完后又提交到 submodule 里修改**。但宿主仓库中 `.claude/agents/*.md` 已经是 install.sh 复制出来的独立副本，在宿主的 `.claude/agents/` 中修改 `model` 字段不会被子模块覆盖（install.sh 使用 no-clobber 策略，不会覆盖已存在的文件）
+- `default`：未单独指定的 subagent 使用的兜底模型
+- 可按 subagent name 逐个指定（名称必须匹配已注册的 6 个 subagent）
+- 可用模型标识：`claude-sonnet-4-6`、`claude-haiku-4-5-20251001`、`claude-opus-4-8`、`claude-deepseek-4-flash` 等
+- 修改后**需重启 session** 使模板重新解析生效
+- 模型设置只影响 subagent 调用，不影响 Claude Code 主对话使用的模型
 
 ## 开发
 
